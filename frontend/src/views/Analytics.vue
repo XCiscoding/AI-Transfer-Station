@@ -1,0 +1,1769 @@
+<template>
+  <div class="page-layout" :class="{ 'dark': themeStore.isDark }">
+    <!-- 左侧导航栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <Logo :mode="themeStore.isDark ? 'light' : 'dark'" size="medium" />
+          <span class="logo-text">AI调度中心</span>
+        </div>
+      </div>
+      
+      <el-menu
+        :default-active="$route.path"
+        class="sidebar-menu"
+        :collapse="isCollapse"
+        :collapse-transition="false"
+        router
+      >
+        <el-menu-item index="/">
+          <el-icon><HomeFilled /></el-icon>
+          <template #title>控制台首页</template>
+        </el-menu-item>
+        
+        <el-menu-item index="/models">
+          <el-icon><Grid /></el-icon>
+          <template #title>模型广场</template>
+        </el-menu-item>
+        
+        <el-menu-item index="/skills">
+          <el-icon><MagicStick /></el-icon>
+          <template #title>Skill超市</template>
+        </el-menu-item>
+        
+        <el-menu-item index="/tokens">
+          <el-icon><Key /></el-icon>
+          <template #title>令牌管理</template>
+        </el-menu-item>
+        
+        <el-menu-item index="/analytics">
+          <el-icon><TrendCharts /></el-icon>
+          <template #title>数据看板</template>
+        </el-menu-item>
+        
+        <el-menu-item index="/logs">
+          <el-icon><Document /></el-icon>
+          <template #title>请求日志</template>
+        </el-menu-item>
+        
+        <el-divider />
+        
+        <el-menu-item index="/profile">
+          <el-icon><User /></el-icon>
+          <template #title>个人中心</template>
+        </el-menu-item>
+      </el-menu>
+      
+      <div class="sidebar-footer">
+        <el-button
+          type="text"
+          class="collapse-btn"
+          @click="isCollapse = !isCollapse"
+        >
+          <el-icon :size="18">
+            <Fold v-if="!isCollapse" />
+            <Expand v-else />
+          </el-icon>
+        </el-button>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <div class="main-container">
+      <!-- 顶部栏 -->
+      <header class="top-header">
+        <div class="header-left">
+          <breadcrumb />
+        </div>
+        <div class="header-right">
+          <!-- 主题切换 -->
+          <el-tooltip :content="themeStore.isDark ? '切换浅色模式' : '切换深色模式'">
+            <el-button
+              circle
+              class="theme-toggle"
+              @click="themeStore.toggleTheme"
+            >
+              <el-icon :size="18">
+                <Sunny v-if="themeStore.isDark" />
+                <Moon v-else />
+              </el-icon>
+            </el-button>
+          </el-tooltip>
+          
+          <!-- 通知 -->
+          <el-badge :value="3" class="notification-badge">
+            <el-button circle class="glass-btn">
+              <el-icon :size="18"><Bell /></el-icon>
+            </el-button>
+          </el-badge>
+          
+          <!-- 用户头像 -->
+          <el-dropdown>
+            <div class="user-info">
+              <el-avatar :size="36" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
+              <span class="username">管理员</span>
+              <el-icon><ArrowDown /></el-icon>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item>个人设置</el-dropdown-item>
+                <el-dropdown-item>修改密码</el-dropdown-item>
+                <el-dropdown-item divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </header>
+
+      <!-- 页面内容 -->
+      <main class="main-content">
+        <!-- 页面头部 - 非对称布局 -->
+        <div class="page-header">
+          <div class="header-content">
+            <h1 class="page-title">数据看板</h1>
+            <p class="page-subtitle">实时监控平台运行状态与数据分析</p>
+          </div>
+          <div class="header-glow"></div>
+          <div class="header-actions">
+            <div class="time-selector">
+              <button 
+                v-for="range in timeRanges" 
+                :key="range.value"
+                :class="['time-btn', { active: timeRange === range.value }]"
+                @click="timeRange = range.value"
+              >
+                {{ range.label }}
+              </button>
+            </div>
+            <button class="export-btn">
+              <el-icon><Download /></el-icon>
+              <span>导出报表</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 核心指标卡片 - 非对称布局 -->
+        <div class="metrics-section">
+          <div class="metric-card metric-card-featured">
+            <div class="metric-glow"></div>
+            <div class="metric-content">
+              <div class="metric-header">
+                <span class="metric-name">总调用次数</span>
+                <div class="metric-icon-wrap cyan">
+                  <el-icon :size="20"><TrendCharts /></el-icon>
+                </div>
+              </div>
+              <div class="metric-value">1.2M</div>
+              <div class="metric-change up">
+                <el-icon><ArrowUp /></el-icon>
+                <span>+15.3% 较上期</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-glow"></div>
+            <div class="metric-content">
+              <div class="metric-header">
+                <span class="metric-name">成功率</span>
+                <div class="metric-icon-wrap green">
+                  <el-icon :size="18"><CircleCheckFilled /></el-icon>
+                </div>
+              </div>
+              <div class="metric-value">99.2%</div>
+              <div class="metric-change up">
+                <el-icon><ArrowUp /></el-icon>
+                <span>+0.5% 较上期</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-glow"></div>
+            <div class="metric-content">
+              <div class="metric-header">
+                <span class="metric-name">平均延迟</span>
+                <div class="metric-icon-wrap amber">
+                  <el-icon :size="18"><Timer /></el-icon>
+                </div>
+              </div>
+              <div class="metric-value">142ms</div>
+              <div class="metric-change down">
+                <el-icon><ArrowDown /></el-icon>
+                <span>-12ms 较上期</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="metric-card">
+            <div class="metric-glow"></div>
+            <div class="metric-content">
+              <div class="metric-header">
+                <span class="metric-name">活跃渠道</span>
+                <div class="metric-icon-wrap violet">
+                  <el-icon :size="18"><Connection /></el-icon>
+                </div>
+              </div>
+              <div class="metric-value">8</div>
+              <div class="metric-change neutral">
+                <span class="status-dot"></span>
+                <span>全部正常</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 数据趋势图表 -->
+        <div class="chart-section">
+          <div class="chart-panel">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <div class="panel-icon">
+                  <el-icon><DataLine /></el-icon>
+                </div>
+                <span class="panel-title">调用趋势分析</span>
+              </div>
+              <div class="chart-type-selector">
+                <button 
+                  v-for="type in chartTypes" 
+                  :key="type.value"
+                  :class="['type-btn', { active: chartType === type.value }]"
+                  @click="chartType = type.value"
+                >
+                  {{ type.label }}
+                </button>
+              </div>
+            </div>
+            <div class="chart-content">
+              <div class="chart-metrics">
+                <div class="chart-metric">
+                  <span class="metric-label">总调用量</span>
+                  <span class="metric-number">128,456</span>
+                </div>
+                <div class="chart-metric">
+                  <span class="metric-label">峰值时段</span>
+                  <span class="metric-number">14:00</span>
+                </div>
+                <div class="chart-metric">
+                  <span class="metric-label">平均QPS</span>
+                  <span class="metric-number">89.2</span>
+                </div>
+              </div>
+              <div class="chart-visual">
+                <div class="chart-bars">
+                  <div v-for="(item, index) in trendData" :key="index" class="chart-bar-wrapper">
+                    <div class="bar-stack">
+                      <div 
+                        class="bar-success" 
+                        :style="{ height: item.success + '%' }"
+                      ></div>
+                      <div 
+                        class="bar-failed" 
+                        :style="{ height: item.failed + '%' }"
+                      ></div>
+                    </div>
+                    <span class="bar-label">{{ item.label }}</span>
+                  </div>
+                </div>
+                <div class="chart-axis-y">
+                  <span v-for="n in 5" :key="n">{{ (6 - n) * 20 }}k</span>
+                </div>
+              </div>
+              <div class="chart-legend">
+                <div class="legend-item">
+                  <span class="legend-dot success"></span>
+                  <span>成功调用</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-dot failed"></span>
+                  <span>失败调用</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 资源状态与公告 - 非对称布局 -->
+        <div class="bottom-section">
+          <div class="resource-panel">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <div class="panel-icon">
+                  <el-icon><Monitor /></el-icon>
+                </div>
+                <span class="panel-title">渠道资源状态</span>
+              </div>
+              <div class="status-badge">
+                <span class="status-dot success"></span>
+                <span>8/8 正常</span>
+              </div>
+            </div>
+            <div class="resource-list">
+              <div class="resource-item" v-for="(channel, index) in channels" :key="index">
+                <div class="resource-main">
+                  <div class="resource-icon" :class="channel.status">
+                    <el-icon v-if="channel.status === 'success'"><CircleCheckFilled /></el-icon>
+                    <el-icon v-else><WarningFilled /></el-icon>
+                  </div>
+                  <div class="resource-info">
+                    <span class="resource-name">{{ channel.name }}</span>
+                    <span class="resource-meta">{{ channel.meta }}</span>
+                  </div>
+                </div>
+                <div class="resource-status" :class="channel.status">
+                  {{ channel.statusText }}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="notice-panel">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <div class="panel-icon">
+                  <el-icon><Notification /></el-icon>
+                </div>
+                <span class="panel-title">公告通知</span>
+              </div>
+              <button class="view-all-btn">查看全部</button>
+            </div>
+            <div class="notice-list">
+              <div class="notice-item" v-for="(notice, index) in notices" :key="index">
+                <div class="notice-badge" :class="notice.type">{{ notice.badge }}</div>
+                <div class="notice-content">
+                  <div class="notice-title">{{ notice.title }}</div>
+                  <div class="notice-desc">{{ notice.desc }}</div>
+                  <div class="notice-time">{{ notice.time }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模型使用排行 -->
+        <div class="ranking-section">
+          <div class="ranking-panel">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <div class="panel-icon">
+                  <el-icon><Trophy /></el-icon>
+                </div>
+                <span class="panel-title">模型使用排行</span>
+              </div>
+            </div>
+            <div class="ranking-list">
+              <div v-for="(item, index) in modelRanking" :key="index" class="ranking-item">
+                <div class="ranking-number" :class="{ 'top3': index < 3 }">{{ index + 1 }}</div>
+                <div class="ranking-info">
+                  <span class="model-name">{{ item.name }}</span>
+                  <div class="progress-bar">
+                    <div class="progress-fill" :style="{ width: item.percentage + '%', background: getProgressColor(index) }"></div>
+                  </div>
+                </div>
+                <div class="ranking-stats">
+                  <span class="call-count">{{ item.calls }}次</span>
+                  <span class="percentage">{{ item.percentage }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</template>
+
+<script>
+import { ref, onMounted } from 'vue'
+import { useThemeStore } from '@/stores/theme.js'
+import Logo from '@/components/Logo.vue'
+
+export default {
+  name: 'Analytics',
+  components: {
+    Logo
+  },
+  setup() {
+    const themeStore = useThemeStore()
+    const isCollapse = ref(false)
+    const timeRange = ref('day')
+    const chartType = ref('calls')
+
+    const timeRanges = [
+      { label: '今日', value: 'day' },
+      { label: '本周', value: 'week' },
+      { label: '本月', value: 'month' }
+    ]
+
+    const chartTypes = [
+      { label: '调用量', value: 'calls' },
+      { label: 'Token消耗', value: 'tokens' },
+      { label: '费用', value: 'cost' }
+    ]
+
+    // 趋势数据
+    const trendData = ref([
+      { label: '00:00', success: 45, failed: 5 },
+      { label: '04:00', success: 32, failed: 3 },
+      { label: '08:00', success: 78, failed: 8 },
+      { label: '12:00', success: 92, failed: 6 },
+      { label: '14:00', success: 88, failed: 7 },
+      { label: '16:00', success: 85, failed: 5 },
+      { label: '18:00', success: 75, failed: 4 },
+      { label: '20:00', success: 68, failed: 6 },
+      { label: '22:00', success: 55, failed: 4 },
+      { label: '23:59', success: 42, failed: 3 }
+    ])
+
+    // 渠道数据
+    const channels = ref([
+      { name: 'OpenAI GPT-4', meta: '延迟: 145ms | 可用率: 99.8%', status: 'success', statusText: '正常' },
+      { name: '通义千问 Qwen', meta: '延迟: 89ms | 可用率: 99.5%', status: 'success', statusText: '正常' },
+      { name: '文心一言 ERNIE', meta: '延迟: 320ms | 可用率: 96.2%', status: 'warning', statusText: '延迟高' },
+      { name: 'DeepSeek V3', meta: '延迟: 112ms | 可用率: 99.1%', status: 'success', statusText: '正常' },
+      { name: 'Claude 3.5 Sonnet', meta: '延迟: 178ms | 可用率: 99.6%', status: 'success', statusText: '正常' }
+    ])
+
+    // 公告数据
+    const notices = ref([
+      { type: 'primary', badge: '新功能', title: 'Auto模式智能模型选择功能已上线', desc: '系统将根据您的使用场景自动选择最优模型', time: '2小时前' },
+      { type: 'warning', badge: '维护', title: '系统将于今晚 02:00 进行例行维护', desc: '预计维护时间30分钟，期间服务可能短暂中断', time: '昨天' },
+      { type: 'success', badge: '更新', title: '新增 Claude 3.5 Sonnet 模型支持', desc: '现在您可以在模型广场中使用 Claude 3.5 Sonnet', time: '3天前' },
+      { type: 'info', badge: '提示', title: 'API 调用限额提醒', desc: '您本月的 API 调用量已达到配额的 85%', time: '5天前' }
+    ])
+
+    // 模型使用排行
+    const modelRanking = ref([
+      { name: 'GPT-4 Turbo', calls: '45,230', percentage: 35 },
+      { name: 'Claude 3.5 Sonnet', calls: '32,156', percentage: 25 },
+      { name: '通义千问 Qwen', calls: '28,432', percentage: 22 },
+      { name: 'DeepSeek V3', calls: '15,678', percentage: 12 },
+      { name: '文心一言 ERNIE', calls: '7,890', percentage: 6 }
+    ])
+
+    const getProgressColor = (index) => {
+      const colors = ['#22C55E', '#06B6D4', '#F59E0B', '#64748B', '#94A3B8']
+      return colors[index] || '#94A3B8'
+    }
+
+    onMounted(() => {
+      themeStore.initTheme()
+    })
+
+    return {
+      themeStore,
+      isCollapse,
+      timeRange,
+      chartType,
+      timeRanges,
+      chartTypes,
+      trendData,
+      channels,
+      notices,
+      modelRanking,
+      getProgressColor
+    }
+  }
+}
+</script>
+
+<style scoped>
+/* 导入字体 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+.page-layout {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  background: #0F172A;
+  font-family: 'Inter', sans-serif;
+}
+
+/* 侧边栏样式 - 玻璃拟态 */
+.sidebar {
+  width: 240px;
+  background: 
+    linear-gradient(180deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.9) 100%);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease;
+  box-shadow: 
+    0 0 0 1px rgba(59, 130, 246, 0.1) inset,
+    4px 0 24px rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-header {
+  padding: 24px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+}
+
+.logo-text {
+  font-family: 'Orbitron', 'Exo 2', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: #F8FAFC;
+  white-space: nowrap;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #F8FAFC 0%, #60A5FA 50%, #3B82F6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 30px rgba(59, 130, 246, 0.3);
+}
+
+.sidebar-menu {
+  flex: 1;
+  border-right: none;
+  background: transparent;
+  padding: 12px 8px;
+}
+
+.sidebar-menu :deep(.el-menu-item) {
+  color: rgba(248, 250, 252, 0.7);
+  border-radius: 10px;
+  margin: 4px 0;
+  height: 44px;
+  line-height: 44px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.sidebar-menu :deep(.el-menu-item:hover) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #F8FAFC;
+}
+
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
+  font-weight: 600;
+}
+
+.sidebar-menu :deep(.el-icon) {
+  color: inherit;
+}
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.collapse-btn {
+  width: 100%;
+  color: rgba(248, 250, 252, 0.6);
+  transition: color 0.2s ease;
+}
+
+.collapse-btn:hover {
+  color: #F8FAFC;
+}
+
+/* 主容器样式 */
+.main-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 顶部栏样式 - 玻璃拟态 */
+.top-header {
+  height: 72px;
+  background: 
+    linear-gradient(180deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  box-shadow: 
+    0 0 0 1px rgba(59, 130, 246, 0.08) inset,
+    0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.theme-toggle,
+.glass-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(248, 250, 252, 0.8);
+  transition: all 0.3s ease;
+}
+
+.theme-toggle:hover,
+.glass-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #F8FAFC;
+  transform: translateY(-1px);
+}
+
+.notification-badge :deep(.el-badge__content) {
+  top: 6px;
+  right: 6px;
+  background: #EF4444;
+  border: none;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+}
+
+.user-info:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.username {
+  font-size: 14px;
+  font-weight: 500;
+  color: #F8FAFC;
+}
+
+/* 主内容区样式 */
+.main-content {
+  flex: 1;
+  padding: 28px;
+  overflow-y: auto;
+  background:
+    /* 顶部蓝色光晕 */
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(59, 130, 246, 0.15) 0%, transparent 60%),
+    /* 左下角蓝色光晕 */
+    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(59, 130, 246, 0.12) 0%, transparent 50%),
+    /* 右下角紫色光晕 */
+    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
+    /* 中央微弱光晕 */
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 70%),
+    /* 主背景渐变 */
+    linear-gradient(180deg, 
+      rgba(30, 41, 59, 0.95) 0%, 
+      rgba(15, 23, 42, 0.98) 30%,
+      rgba(15, 23, 42, 1) 50%, 
+      rgba(15, 23, 42, 0.98) 70%,
+      rgba(30, 41, 59, 0.95) 100%);
+}
+
+/* 页面头部 - 非对称布局 */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 28px;
+  position: relative;
+  padding: 24px 0;
+}
+
+.header-content {
+  position: relative;
+  z-index: 1;
+}
+
+.page-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin-bottom: 8px;
+  letter-spacing: -1px;
+  background: linear-gradient(135deg, #F8FAFC 0%, #94A3B8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.page-subtitle {
+  font-size: 15px;
+  color: rgba(248, 250, 252, 0.6);
+  font-weight: 400;
+}
+
+.header-glow {
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  transform: translateY(-50%);
+  width: 250px;
+  height: 120px;
+  background: radial-gradient(ellipse, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 1;
+}
+
+.time-selector {
+  display: flex;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.time-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.6);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.time-btn:hover {
+  color: #F8FAFC;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.time-btn.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3B82F6;
+}
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Inter', sans-serif;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+}
+
+.export-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.45);
+}
+
+/* 核心指标卡片 - 非对称网格 */
+.metrics-section {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.metric-card {
+  position: relative;
+  background: 
+    linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 
+    0 0 0 1px rgba(59, 130, 246, 0.05) inset,
+    0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(59, 130, 246, 0.15) inset,
+    0 0 30px rgba(59, 130, 246, 0.1);
+}
+
+.metric-glow {
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.12) 0%, transparent 50%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.metric-card:hover .metric-glow {
+  opacity: 1;
+}
+
+.metric-content {
+  position: relative;
+  z-index: 1;
+}
+
+.metric-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.metric-name {
+  font-size: 14px;
+  color: rgba(248, 250, 252, 0.6);
+  font-weight: 500;
+}
+
+.metric-icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.metric-icon-wrap.cyan {
+  background: linear-gradient(135deg, #06B6D4 0%, #0891B2 100%);
+  box-shadow: 0 6px 16px rgba(6, 182, 212, 0.35);
+}
+
+.metric-icon-wrap.green {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.35);
+}
+
+.metric-icon-wrap.amber {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
+}
+
+.metric-icon-wrap.violet {
+  background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35);
+}
+
+.metric-value {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  color: #F8FAFC;
+  margin-bottom: 12px;
+  letter-spacing: -0.5px;
+}
+
+.metric-card-featured .metric-value {
+  font-size: 40px;
+}
+
+.metric-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.metric-change.up {
+  color: #3B82F6;
+}
+
+.metric-change.down {
+  color: #F43F5E;
+}
+
+.metric-change.neutral {
+  color: rgba(248, 250, 252, 0.6);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3B82F6;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+
+/* 图表区域 */
+.chart-section {
+  margin-bottom: 28px;
+}
+
+.chart-panel {
+  background: 
+    linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px;
+  transition: all 0.4s ease;
+  box-shadow: 
+    0 0 0 1px rgba(59, 130, 246, 0.05) inset,
+    0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.chart-panel:hover {
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(59, 130, 246, 0.1) inset,
+    0 0 30px rgba(59, 130, 246, 0.08);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.panel-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.panel-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3B82F6;
+}
+
+.panel-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: #F8FAFC;
+}
+
+.chart-type-selector {
+  display: flex;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.type-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.6);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.type-btn:hover {
+  color: #F8FAFC;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.type-btn.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3B82F6;
+}
+
+.chart-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.chart-metrics {
+  display: flex;
+  gap: 48px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chart-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.5);
+  font-weight: 500;
+}
+
+.metric-number {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: #F8FAFC;
+}
+
+.chart-visual {
+  display: flex;
+  gap: 20px;
+  height: 280px;
+  position: relative;
+}
+
+.chart-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 12px;
+  padding: 0 50px;
+}
+
+.chart-bar-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar-stack {
+  width: 100%;
+  max-width: 36px;
+  height: 240px;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bar-success {
+  background: linear-gradient(180deg, #3B82F6 0%, #2563EB 100%);
+  transition: height 0.5s ease;
+}
+
+.bar-failed {
+  background: linear-gradient(180deg, #F43F5E 0%, #E11D48 100%);
+  transition: height 0.5s ease;
+}
+
+.bar-label {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.5);
+  font-weight: 500;
+}
+
+.chart-axis-y {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.4);
+}
+
+.chart-legend {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(248, 250, 252, 0.6);
+  font-weight: 500;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.legend-dot.success {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+}
+
+.legend-dot.failed {
+  background: linear-gradient(135deg, #F43F5E 0%, #E11D48 100%);
+}
+
+/* 底部区域 - 非对称布局 */
+.bottom-section {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.resource-panel,
+.notice-panel {
+  background: 
+    linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px;
+  transition: all 0.4s ease;
+  box-shadow: 
+    0 0 0 1px rgba(59, 130, 246, 0.05) inset,
+    0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.resource-panel:hover,
+.notice-panel:hover {
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(59, 130, 246, 0.1) inset,
+    0 0 30px rgba(59, 130, 246, 0.08);
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(59, 130, 246, 0.15);
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3B82F6;
+}
+
+.view-all-btn {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: rgba(248, 250, 252, 0.7);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.view-all-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #3B82F6;
+}
+
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resource-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.resource-item:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.03) 100%);
+  border-color: rgba(59, 130, 246, 0.2);
+  transform: translateX(4px);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+}
+
+.resource-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.resource-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.resource-icon.success {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
+}
+
+.resource-icon.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+}
+
+.resource-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resource-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #F8FAFC;
+}
+
+.resource-meta {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.5);
+}
+
+.resource-status {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.resource-status.success {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
+}
+
+.resource-status.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+}
+
+/* 公告列表 */
+.notice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.notice-item {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.notice-item:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.03) 100%);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+}
+
+.notice-badge {
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.notice-badge.primary {
+  background: rgba(6, 182, 212, 0.15);
+  color: #06B6D4;
+}
+
+.notice-badge.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #F59E0B;
+}
+
+.notice-badge.success {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
+}
+
+.notice-badge.info {
+  background: rgba(148, 163, 184, 0.15);
+  color: #94A3B8;
+}
+
+.notice-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notice-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #F8FAFC;
+}
+
+.notice-desc {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.5);
+}
+
+.notice-time {
+  font-size: 11px;
+  color: rgba(248, 250, 252, 0.35);
+  margin-top: 2px;
+}
+
+/* 排行区域 */
+.ranking-section {
+  margin-bottom: 28px;
+}
+
+.ranking-panel {
+  background: 
+    linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px;
+  transition: all 0.4s ease;
+  box-shadow: 
+    0 0 0 1px rgba(59, 130, 246, 0.05) inset,
+    0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.ranking-panel:hover {
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 
+    0 24px 48px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(59, 130, 246, 0.1) inset,
+    0 0 30px rgba(59, 130, 246, 0.08);
+}
+
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.ranking-item:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.03) 100%);
+  border-color: rgba(59, 130, 246, 0.2);
+  transform: translateX(4px);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+}
+
+.ranking-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.ranking-number.top3 {
+  color: #fff;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.ranking-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.model-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #F8FAFC;
+}
+
+.progress-bar {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.ranking-stats {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 120px;
+}
+
+.call-count {
+  font-size: 14px;
+  color: rgba(248, 250, 252, 0.5);
+}
+
+.percentage {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #F8FAFC;
+  min-width: 40px;
+  text-align: right;
+}
+
+/* 深色模式适配 */
+.dark .sidebar {
+  background: 
+    linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(11, 17, 32, 0.98) 100%);
+}
+
+.dark .top-header {
+  background: 
+    linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(11, 17, 32, 0.95) 100%);
+}
+
+.dark .main-content {
+  background: 
+    /* 顶部蓝色光晕 */
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(59, 130, 246, 0.18) 0%, transparent 60%),
+    /* 左下角蓝色光晕 */
+    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
+    /* 右下角紫色光晕 */
+    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+    /* 中央微弱光晕 */
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(59, 130, 246, 0.06) 0%, transparent 70%),
+    /* 深色背景 */
+    linear-gradient(180deg, 
+      rgba(15, 23, 42, 0.98) 0%, 
+      rgba(11, 17, 32, 1) 50%, 
+      rgba(15, 23, 42, 0.98) 100%);
+}
+
+/* 浅色模式适配 */
+.page-layout:not(.dark) {
+  background: #F1F5F9;
+}
+
+.page-layout:not(.dark) .sidebar {
+  background: rgba(255, 255, 255, 0.8);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.page-layout:not(.dark) .logo-text {
+  background: linear-gradient(135deg, #1E293B 0%, #3B82F6 50%, #2563EB 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+}
+
+.page-layout:not(.dark) .sidebar-menu :deep(.el-menu-item) {
+  color: rgba(30, 41, 59, 0.7);
+}
+
+.page-layout:not(.dark) .sidebar-menu :deep(.el-menu-item:hover) {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1E293B;
+}
+
+.page-layout:not(.dark) .sidebar-menu :deep(.el-menu-item.is-active) {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563EB;
+}
+
+.page-layout:not(.dark) .top-header {
+  background: rgba(255, 255, 255, 0.7);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.page-layout:not(.dark) .theme-toggle,
+.page-layout:not(.dark) .glass-btn {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: rgba(30, 41, 59, 0.7);
+}
+
+.page-layout:not(.dark) .user-info {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.page-layout:not(.dark) .username {
+  color: #1E293B;
+}
+
+.page-layout:not(.dark) .main-content {
+  background:
+    /* 顶部蓝色光晕 */
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(59, 130, 246, 0.12) 0%, transparent 60%),
+    /* 左下角蓝色光晕 */
+    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+    /* 右下角紫色光晕 */
+    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
+    /* 中央微弱光晕 */
+    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(59, 130, 246, 0.04) 0%, transparent 70%),
+    /* 主背景渐变 */
+    linear-gradient(180deg, 
+      rgba(248, 250, 252, 0.95) 0%, 
+      rgba(241, 245, 249, 0.98) 30%,
+      rgba(241, 245, 249, 1) 50%, 
+      rgba(241, 245, 249, 0.98) 70%,
+      rgba(226, 232, 240, 0.95) 100%);
+}
+
+.page-layout:not(.dark) .page-title {
+  background: linear-gradient(135deg, #1E293B 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.page-layout:not(.dark) .page-subtitle {
+  color: rgba(30, 41, 59, 0.6);
+}
+
+.page-layout:not(.dark) .time-selector,
+.page-layout:not(.dark) .chart-type-selector {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.page-layout:not(.dark) .time-btn,
+.page-layout:not(.dark) .type-btn {
+  color: rgba(30, 41, 59, 0.6);
+}
+
+.page-layout:not(.dark) .time-btn:hover,
+.page-layout:not(.dark) .type-btn:hover {
+  color: #1E293B;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.page-layout:not(.dark) .time-btn.active,
+.page-layout:not(.dark) .type-btn.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: #2563EB;
+}
+
+.page-layout:not(.dark) .metric-card,
+.page-layout:not(.dark) .chart-panel,
+.page-layout:not(.dark) .resource-panel,
+.page-layout:not(.dark) .notice-panel,
+.page-layout:not(.dark) .ranking-panel {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.page-layout:not(.dark) .metric-value,
+.page-layout:not(.dark) .panel-title,
+.page-layout:not(.dark) .metric-number,
+.page-layout:not(.dark) .resource-name,
+.page-layout:not(.dark) .notice-title,
+.page-layout:not(.dark) .model-name,
+.page-layout:not(.dark) .percentage {
+  color: #1E293B;
+}
+
+.page-layout:not(.dark) .metric-name,
+.page-layout:not(.dark) .metric-label,
+.page-layout:not(.dark) .bar-label,
+.page-layout:not(.dark) .legend-item,
+.page-layout:not(.dark) .resource-meta,
+.page-layout:not(.dark) .notice-desc,
+.page-layout:not(.dark) .notice-time,
+.page-layout:not(.dark) .call-count {
+  color: rgba(30, 41, 59, 0.55);
+}
+
+.page-layout:not(.dark) .resource-item,
+.page-layout:not(.dark) .notice-item,
+.page-layout:not(.dark) .ranking-item {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.6) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.page-layout:not(.dark) .resource-item:hover,
+.page-layout:not(.dark) .notice-item:hover,
+.page-layout:not(.dark) .ranking-item:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.03) 100%);
+  border-color: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+}
+
+.page-layout:not(.dark) .view-all-btn {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: rgba(30, 41, 59, 0.7);
+}
+
+.page-layout:not(.dark) .chart-metrics {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.page-layout:not(.dark) .chart-legend {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.page-layout:not(.dark) .bar-stack {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.page-layout:not(.dark) .progress-bar {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.page-layout:not(.dark) .ranking-number {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(30, 41, 59, 0.5);
+}
+
+/* 响应式适配 */
+@media (max-width: 1280px) {
+  .metrics-section {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .metric-card-featured {
+    grid-column: span 2;
+  }
+  
+  .bottom-section {
+    grid-template-columns: 1fr;
+  }
+  
+  .page-header {
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 64px;
+  }
+  
+  .logo-text {
+    display: none;
+  }
+  
+  .main-content {
+    padding: 16px;
+  }
+  
+  .page-title {
+    font-size: 26px;
+  }
+  
+  .metrics-section {
+    grid-template-columns: 1fr;
+  }
+  
+  .metric-card-featured {
+    grid-column: span 1;
+  }
+  
+  .chart-metrics {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  
+  .chart-visual {
+    height: 220px;
+  }
+  
+  .chart-bars {
+    padding: 0 40px;
+  }
+  
+  .ranking-stats {
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+  }
+}
+</style>
