@@ -1,0 +1,58 @@
+# AI调度中心 - 企业API Key管理系统 Dockerfile
+# 使用多阶段构建优化镜像大小
+# 优化：避免拉取大型Maven镜像，改用轻量级Java镜像+容器内安装Maven
+
+# 阶段1：构建阶段
+FROM docker.1ms.run/library/eclipse-temurin:17-alpine AS builder
+
+WORKDIR /app
+
+# 安装Maven（通过Alpine包管理器，避免拉取大型maven镜像）
+# 同时安装curl用于健康检查
+RUN apk add --no-cache maven curl
+
+# 配置Maven使用阿里云镜像源加速依赖下载（解决国内网络问题）
+RUN mkdir -p /root/.m2 && \
+    echo '<?xml version="1.0" encoding="UTF-8"?>' > /root/.m2/settings.xml && \
+    echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"' >> /root/.m2/settings.xml && \
+    echo '          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /root/.m2/settings.xml && \
+    echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0' >> /root/.m2/settings.xml && \
+    echo '          https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /root/.m2/settings.xml && \
+    echo '  <mirrors>' >> /root/.m2/settings.xml && \
+    echo '    <mirror>' >> /root/.m2/settings.xml && \
+    echo '      <id>aliyun</id>' >> /root/.m2/settings.xml && \
+    echo '      <mirrorOf>*</mirrorOf>' >> /root/.m2/settings.xml && \
+    echo '      <name>Aliyun Maven Mirror</name>' >> /root/.m2/settings.xml && \
+    echo '      <url>https://maven.aliyun.com/repository/public</url>' >> /root/.m2/settings.xml && \
+    echo '    </mirror>' >> /root/.m2/settings.xml && \
+    echo '  </mirrors>' >> /root/.m2/settings.xml && \
+    echo '</settings>' >> /root/.m2/settings.xml
+
+# 先复制pom.xml，利用Docker缓存层
+COPY backend/pom.xml .
+RUN mvn dependency:go-offline -B
+
+# 复制源代码并构建
+COPY backend/src ./src
+RUN mvn clean package -DskipTests -B
+
+# 阶段2：运行阶段
+FROM docker.1ms.run/library/eclipse-temurin:17-jre-alpine
+
+WORKDIR /app
+
+# 安装必要的工具
+RUN apk add --no-cache curl
+
+# 从构建阶段复制jar文件
+COPY --from=builder /app/target/*.jar app.jar
+
+# 暴露端口
+EXPOSE 8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/api/health || exit 1
+
+# 启动应用
+ENTRYPOINT ["java", "-jar", "app.jar"]

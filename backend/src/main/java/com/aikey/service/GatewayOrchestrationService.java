@@ -1,0 +1,250 @@
+package com.aikey.service;
+
+import com.aikey.dto.gateway.ChatCompletionRequest;
+import com.aikey.dto.gateway.ChatCompletionResponse;
+import com.aikey.dto.gateway.UsageInfo;
+import com.aikey.entity.CallLog;
+import com.aikey.entity.Channel;
+import com.aikey.entity.VirtualKey;
+import com.aikey.exception.BusinessException;
+import com.aikey.gateway.auth.VirtualKeyAuthContext;
+import com.aikey.gateway.dispatch.DispatchResult;
+import com.aikey.gateway.dispatch.DispatchService;
+import com.aikey.gateway.dispatch.DispatchStrategyType;
+import com.aikey.gateway.proxy.ProxyForwardService;
+import com.aikey.gateway.ratelimit.RateLimitService;
+import com.aikey.repository.ChannelRepository;
+import com.aikey.repository.VirtualKeyRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+
+/**
+ * 网关编排服务
+ *
+ * <p>实现完整的调用链路：
+ * 鉴权(Filter) → 权限检查 → 限流 → 额度预检 → 调度 → 转发 → 额度扣减 → 日志记录 → 返回结果</p>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class GatewayOrchestrationService {
+
+    private final RateLimitService rateLimitService;
+    private final QuotaService quotaService;
+    private final DispatchService dispatchService;
+    private final ProxyForwardService proxyForwardService;
+    private final CallLogService callLogService;
+    private final ChannelRepository channelRepository;
+    private final VirtualKeyRepository virtualKeyRepository;
+    private final ObjectMapper objectMapper;
+
+    private static final int MAX_RETRY = 3;
+
+    /**
+     * 处理Chat Completion请求的完整链路
+     *
+     * @param request   请求体
+     * @param clientIp  客户端IP
+     * @param userAgent 客户端User-Agent
+     * @return 厂商响应
+     */
+    public ChatCompletionResponse processChatCompletion(ChatCompletionRequest request,
+                                                         String clientIp,
+                                                         String userAgent) {
+        String traceId = UUID.randomUUID().toString().replace("-", "");
+        long startTime = System.currentTimeMillis();
+
+        VirtualKey virtualKey = VirtualKeyAuthContext.get();
+        if (virtualKey == null) {
+            throw new BusinessException(401, "Authentication required.");
+        }
+
+        // 1. 检查stream（MVP不支持）
+        if (Boolean.TRUE.equals(request.getStream())) {
+            throw new BusinessException(400, "Streaming is not yet supported.");
+        }
+
+        // 2. 模型权限检查
+        checkModelPermission(virtualKey, request.getModel());
+
+        // 3. 限流检查
+        rateLimitService.checkRateLimit(virtualKey);
+
+        // 4. 额度预检查
+        quotaService.checkQuota(virtualKey);
+
+        // 5. 故障转移循环
+        Set<Long> excludedChannelIds = new HashSet<>();
+        DispatchResult dispatchResult = null;
+        ChatCompletionResponse response = null;
+        Exception lastException = null;
+
+        for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
+            try {
+                // 调度
+                dispatchResult = dispatchService.dispatch(
+                        request.getModel(),
+                        DispatchStrategyType.WEIGHTED,
+                        excludedChannelIds
+                );
+
+                // 转发
+                response = proxyForwardService.forwardChatCompletion(
+                        dispatchResult.getChannel().getBaseUrl(),
+                        dispatchResult.getRealKey(),
+                        request
+                );
+
+                // 成功
+                long elapsed = System.currentTimeMillis() - startTime;
+                dispatchService.recordSuccess(dispatchResult.getChannel(), (int) elapsed);
+
+                // 保存渠道统计
+                try {
+                    channelRepository.save(dispatchResult.getChannel());
+                } catch (Exception e) {
+                    log.warn("保存渠道统计失败: {}", e.getMessage());
+                }
+
+                break;
+
+            } catch (BusinessException e) {
+                lastException = e;
+                // 4xx错误不重试（客户端错误）
+                if (e.getCode() >= 400 && e.getCode() < 500 && e.getCode() != 429) {
+                    break;
+                }
+                // 503（无可用渠道）不重试
+                if (e.getCode() == 503) {
+                    break;
+                }
+                // 5xx / 429 / 502 / 504 可以重试
+                if (dispatchResult != null) {
+                    excludedChannelIds.add(dispatchResult.getChannel().getId());
+                    dispatchService.recordFailure(dispatchResult.getChannel());
+                    try {
+                        channelRepository.save(dispatchResult.getChannel());
+                    } catch (Exception ex) {
+                        log.warn("保存渠道失败统计异常: {}", ex.getMessage());
+                    }
+                    log.warn("第{}次尝试失败，排除渠道 {}，准备重试: {}",
+                            attempt, dispatchResult.getChannel().getChannelName(), e.getMessage());
+                }
+            }
+        }
+
+        // 6. 处理结果
+        long totalElapsed = System.currentTimeMillis() - startTime;
+
+        if (response != null) {
+            // 成功：额度扣减 + 日志记录
+            handleSuccess(virtualKey, dispatchResult, response, traceId, clientIp, userAgent, (int) totalElapsed, request.getModel());
+            return response;
+        } else {
+            // 失败：记录失败日志
+            handleFailure(virtualKey, dispatchResult, lastException, traceId, clientIp, userAgent, (int) totalElapsed, request.getModel());
+            throw lastException instanceof BusinessException
+                    ? (BusinessException) lastException
+                    : new BusinessException(502, "All channels failed for model: " + request.getModel());
+        }
+    }
+
+    /**
+     * 检查模型权限
+     */
+    private void checkModelPermission(VirtualKey virtualKey, String requestedModel) {
+        String allowedModels = virtualKey.getAllowedModels();
+        if (!StringUtils.hasText(allowedModels) || "[]".equals(allowedModels.trim())) {
+            return; // 不限制
+        }
+
+        try {
+            List<String> modelList = objectMapper.readValue(allowedModels, new TypeReference<List<String>>() {});
+            if (modelList.isEmpty()) {
+                return;
+            }
+            if (!modelList.contains(requestedModel)) {
+                throw new BusinessException(403, "Model '" + requestedModel + "' is not allowed for this API key.");
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("解析allowedModels失败: {}", e.getMessage());
+            // 解析失败视为不限制
+        }
+    }
+
+    private void handleSuccess(VirtualKey virtualKey, DispatchResult dispatchResult,
+                                ChatCompletionResponse response, String traceId,
+                                String clientIp, String userAgent, int responseTime, String requestModel) {
+        // 额度扣减
+        UsageInfo usage = response.getUsage();
+        if (usage != null && usage.getTotalTokens() != null && usage.getTotalTokens() > 0) {
+            BigDecimal amount = BigDecimal.valueOf(usage.getTotalTokens());
+            quotaService.deductQuota(virtualKey.getId(), amount);
+        }
+
+        // 更新lastUsedTime
+        try {
+            virtualKey.setLastUsedTime(LocalDateTime.now());
+            virtualKeyRepository.save(virtualKey);
+        } catch (Exception e) {
+            log.warn("更新虚拟Key lastUsedTime失败: {}", e.getMessage());
+        }
+
+        // 异步记录日志
+        CallLog callLog = CallLog.builder()
+                .traceId(traceId)
+                .userId(virtualKey.getUser().getId())
+                .virtualKeyId(virtualKey.getId())
+                .channelId(dispatchResult.getChannel().getId())
+                .modelId(dispatchResult.getModel().getId())
+                .modelName(dispatchResult.getModel().getModelName())
+                .requestType("chat")
+                .requestModel(requestModel)
+                .isAutoMode(0)
+                .selectedModel(dispatchResult.getModel().getModelCode())
+                .selectionStrategy(dispatchResult.getStrategyUsed().name())
+                .promptTokens(usage != null ? usage.getPromptTokens() : 0)
+                .completionTokens(usage != null ? usage.getCompletionTokens() : 0)
+                .totalTokens(usage != null ? usage.getTotalTokens() : 0)
+                .responseTime(responseTime)
+                .status(1)
+                .clientIp(clientIp)
+                .userAgent(userAgent)
+                .build();
+        callLogService.recordAsync(callLog);
+    }
+
+    private void handleFailure(VirtualKey virtualKey, DispatchResult dispatchResult,
+                                Exception exception, String traceId,
+                                String clientIp, String userAgent, int responseTime, String requestModel) {
+        CallLog callLog = CallLog.builder()
+                .traceId(traceId)
+                .userId(virtualKey.getUser().getId())
+                .virtualKeyId(virtualKey.getId())
+                .channelId(dispatchResult != null ? dispatchResult.getChannel().getId() : null)
+                .modelId(dispatchResult != null ? dispatchResult.getModel().getId() : null)
+                .modelName(dispatchResult != null ? dispatchResult.getModel().getModelName() : null)
+                .requestType("chat")
+                .requestModel(requestModel)
+                .isAutoMode(0)
+                .selectionStrategy(dispatchResult != null ? dispatchResult.getStrategyUsed().name() : null)
+                .responseTime(responseTime)
+                .status(0)
+                .errorCode(exception instanceof BusinessException ? String.valueOf(((BusinessException) exception).getCode()) : "500")
+                .errorMessage(exception != null ? exception.getMessage() : "Unknown error")
+                .clientIp(clientIp)
+                .userAgent(userAgent)
+                .build();
+        callLogService.recordAsync(callLog);
+    }
+}
