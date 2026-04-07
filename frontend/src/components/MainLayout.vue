@@ -41,6 +41,16 @@
           <template #title>渠道管理</template>
         </el-menu-item>
 
+        <el-menu-item index="/teams">
+          <el-icon><UserFilled /></el-icon>
+          <template #title>团队管理</template>
+        </el-menu-item>
+
+        <el-menu-item index="/projects">
+          <el-icon><Folder /></el-icon>
+          <template #title>项目管理</template>
+        </el-menu-item>
+
         <el-menu-item index="/analytics">
           <el-icon><TrendCharts /></el-icon>
           <template #title>数据看板</template>
@@ -104,19 +114,6 @@
               <el-icon :size="18"><Bell /></el-icon>
             </el-button>
           </el-badge>
-
-          <!-- 退出登录按钮 -->
-          <el-tooltip content="退出登录">
-            <el-button
-              type="danger"
-              plain
-              circle
-              class="logout-btn-header"
-              @click="handleLogout"
-            >
-              <el-icon :size="18"><SwitchButton /></el-icon>
-            </el-button>
-          </el-tooltip>
 
           <!-- 用户头像 -->
           <el-dropdown>
@@ -382,21 +379,6 @@ function handleLogout() {
   right: 6px;
   background: #EF4444;
   border: none;
-}
-
-.logout-btn-header {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #EF4444;
-  transition: all 0.3s ease;
-}
-
-.logout-btn-header:hover {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #FCA5A5;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
 .user-info {

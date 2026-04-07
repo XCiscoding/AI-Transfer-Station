@@ -1,374 +1,255 @@
 <template>
-  <div class="page-layout" :class="{ 'dark': themeStore.isDark }">
-    <!-- 左侧导航栏 -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">
-          <Logo :mode="themeStore.isDark ? 'light' : 'dark'" size="medium" />
-          <span class="logo-text">AI调度中心</span>
+  <div class="analytics-page">
+    <!-- 页面头部 - 非对称布局 -->
+    <div class="page-header">
+      <div class="header-content">
+        <h1 class="page-title">数据看板</h1>
+        <p class="page-subtitle">实时监控平台运行状态与数据分析</p>
+      </div>
+      <div class="header-glow"></div>
+      <div class="header-actions">
+        <div class="time-selector">
+          <button 
+            v-for="range in timeRanges" 
+            :key="range.value"
+            :class="['time-btn', { active: timeRange === range.value }]"
+            @click="timeRange = range.value"
+          >
+            {{ range.label }}
+          </button>
         </div>
+        <button class="export-btn">
+          <el-icon><Download /></el-icon>
+          <span>导出报表</span>
+        </button>
       </div>
-      
-      <el-menu
-        :default-active="$route.path"
-        class="sidebar-menu"
-        :collapse="isCollapse"
-        :collapse-transition="false"
-        router
-      >
-        <el-menu-item index="/">
-          <el-icon><HomeFilled /></el-icon>
-          <template #title>控制台首页</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/models">
-          <el-icon><Grid /></el-icon>
-          <template #title>模型广场</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/skills">
-          <el-icon><MagicStick /></el-icon>
-          <template #title>Skill超市</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/tokens">
-          <el-icon><Key /></el-icon>
-          <template #title>令牌管理</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/analytics">
-          <el-icon><TrendCharts /></el-icon>
-          <template #title>数据看板</template>
-        </el-menu-item>
-        
-        <el-menu-item index="/logs">
-          <el-icon><Document /></el-icon>
-          <template #title>请求日志</template>
-        </el-menu-item>
-        
-        <el-divider />
-        
-        <el-menu-item index="/profile">
-          <el-icon><User /></el-icon>
-          <template #title>个人中心</template>
-        </el-menu-item>
-      </el-menu>
-      
-      <div class="sidebar-footer">
-        <el-button
-          type="text"
-          class="collapse-btn"
-          @click="isCollapse = !isCollapse"
-        >
-          <el-icon :size="18">
-            <Fold v-if="!isCollapse" />
-            <Expand v-else />
-          </el-icon>
-        </el-button>
-      </div>
-    </aside>
+    </div>
 
-    <!-- 主内容区 -->
-    <div class="main-container">
-      <!-- 顶部栏 -->
-      <header class="top-header">
-        <div class="header-left">
-          <breadcrumb />
-        </div>
-        <div class="header-right">
-          <!-- 主题切换 -->
-          <el-tooltip :content="themeStore.isDark ? '切换浅色模式' : '切换深色模式'">
-            <el-button
-              circle
-              class="theme-toggle"
-              @click="themeStore.toggleTheme"
-            >
-              <el-icon :size="18">
-                <Sunny v-if="themeStore.isDark" />
-                <Moon v-else />
-              </el-icon>
-            </el-button>
-          </el-tooltip>
-          
-          <!-- 通知 -->
-          <el-badge :value="3" class="notification-badge">
-            <el-button circle class="glass-btn">
-              <el-icon :size="18"><Bell /></el-icon>
-            </el-button>
-          </el-badge>
-          
-          <!-- 用户头像 -->
-          <el-dropdown>
-            <div class="user-info">
-              <el-avatar :size="36" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-              <span class="username">管理员</span>
-              <el-icon><ArrowDown /></el-icon>
+    <!-- 核心指标卡片 - 非对称布局 -->
+    <div class="metrics-section">
+      <div class="metric-card metric-card-featured">
+        <div class="metric-glow"></div>
+        <div class="metric-content">
+          <div class="metric-header">
+            <span class="metric-name">总调用次数</span>
+            <div class="metric-icon-wrap cyan">
+              <el-icon :size="20"><TrendCharts /></el-icon>
             </div>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item>个人设置</el-dropdown-item>
-                <el-dropdown-item>修改密码</el-dropdown-item>
-                <el-dropdown-item divided>退出登录</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-        </div>
-      </header>
-
-      <!-- 页面内容 -->
-      <main class="main-content">
-        <!-- 页面头部 - 非对称布局 -->
-        <div class="page-header">
-          <div class="header-content">
-            <h1 class="page-title">数据看板</h1>
-            <p class="page-subtitle">实时监控平台运行状态与数据分析</p>
           </div>
-          <div class="header-glow"></div>
-          <div class="header-actions">
-            <div class="time-selector">
-              <button 
-                v-for="range in timeRanges" 
-                :key="range.value"
-                :class="['time-btn', { active: timeRange === range.value }]"
-                @click="timeRange = range.value"
-              >
-                {{ range.label }}
-              </button>
+          <div class="metric-value">1.2M</div>
+          <div class="metric-change up">
+            <el-icon><ArrowUp /></el-icon>
+            <span>+15.3% 较上期</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="metric-card">
+        <div class="metric-glow"></div>
+        <div class="metric-content">
+          <div class="metric-header">
+            <span class="metric-name">成功率</span>
+            <div class="metric-icon-wrap green">
+              <el-icon :size="18"><CircleCheckFilled /></el-icon>
             </div>
-            <button class="export-btn">
-              <el-icon><Download /></el-icon>
-              <span>导出报表</span>
+          </div>
+          <div class="metric-value">99.2%</div>
+          <div class="metric-change up">
+            <el-icon><ArrowUp /></el-icon>
+            <span>+0.5% 较上期</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="metric-card">
+        <div class="metric-glow"></div>
+        <div class="metric-content">
+          <div class="metric-header">
+            <span class="metric-name">平均延迟</span>
+            <div class="metric-icon-wrap amber">
+              <el-icon :size="18"><Timer /></el-icon>
+            </div>
+          </div>
+          <div class="metric-value">142ms</div>
+          <div class="metric-change down">
+            <el-icon><ArrowDown /></el-icon>
+            <span>-12ms 较上期</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="metric-card">
+        <div class="metric-glow"></div>
+        <div class="metric-content">
+          <div class="metric-header">
+            <span class="metric-name">活跃渠道</span>
+            <div class="metric-icon-wrap violet">
+              <el-icon :size="18"><Connection /></el-icon>
+            </div>
+          </div>
+          <div class="metric-value">8</div>
+          <div class="metric-change neutral">
+            <span class="status-dot"></span>
+            <span>全部正常</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 数据趋势图表 -->
+    <div class="chart-section">
+      <div class="chart-panel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <div class="panel-icon">
+              <el-icon><DataLine /></el-icon>
+            </div>
+            <span class="panel-title">调用趋势分析</span>
+          </div>
+          <div class="chart-type-selector">
+            <button 
+              v-for="type in chartTypes" 
+              :key="type.value"
+              :class="['type-btn', { active: chartType === type.value }]"
+              @click="chartType = type.value"
+            >
+              {{ type.label }}
             </button>
           </div>
         </div>
-
-        <!-- 核心指标卡片 - 非对称布局 -->
-        <div class="metrics-section">
-          <div class="metric-card metric-card-featured">
-            <div class="metric-glow"></div>
-            <div class="metric-content">
-              <div class="metric-header">
-                <span class="metric-name">总调用次数</span>
-                <div class="metric-icon-wrap cyan">
-                  <el-icon :size="20"><TrendCharts /></el-icon>
-                </div>
-              </div>
-              <div class="metric-value">1.2M</div>
-              <div class="metric-change up">
-                <el-icon><ArrowUp /></el-icon>
-                <span>+15.3% 较上期</span>
-              </div>
+        <div class="chart-content">
+          <div class="chart-metrics">
+            <div class="chart-metric">
+              <span class="metric-label">总调用量</span>
+              <span class="metric-number">128,456</span>
+            </div>
+            <div class="chart-metric">
+              <span class="metric-label">峰值时段</span>
+              <span class="metric-number">14:00</span>
+            </div>
+            <div class="chart-metric">
+              <span class="metric-label">平均QPS</span>
+              <span class="metric-number">89.2</span>
             </div>
           </div>
-          
-          <div class="metric-card">
-            <div class="metric-glow"></div>
-            <div class="metric-content">
-              <div class="metric-header">
-                <span class="metric-name">成功率</span>
-                <div class="metric-icon-wrap green">
-                  <el-icon :size="18"><CircleCheckFilled /></el-icon>
+          <div class="chart-visual">
+            <div class="chart-bars">
+              <div v-for="(item, index) in trendData" :key="index" class="chart-bar-wrapper">
+                <div class="bar-stack">
+                  <div 
+                    class="bar-success" 
+                    :style="{ height: item.success + '%' }"
+                  ></div>
+                  <div 
+                    class="bar-failed" 
+                    :style="{ height: item.failed + '%' }"
+                  ></div>
                 </div>
-              </div>
-              <div class="metric-value">99.2%</div>
-              <div class="metric-change up">
-                <el-icon><ArrowUp /></el-icon>
-                <span>+0.5% 较上期</span>
+                <span class="bar-label">{{ item.label }}</span>
               </div>
             </div>
-          </div>
-          
-          <div class="metric-card">
-            <div class="metric-glow"></div>
-            <div class="metric-content">
-              <div class="metric-header">
-                <span class="metric-name">平均延迟</span>
-                <div class="metric-icon-wrap amber">
-                  <el-icon :size="18"><Timer /></el-icon>
-                </div>
-              </div>
-              <div class="metric-value">142ms</div>
-              <div class="metric-change down">
-                <el-icon><ArrowDown /></el-icon>
-                <span>-12ms 较上期</span>
-              </div>
+            <div class="chart-axis-y">
+              <span v-for="n in 5" :key="n">{{ (6 - n) * 20 }}k</span>
             </div>
           </div>
-          
-          <div class="metric-card">
-            <div class="metric-glow"></div>
-            <div class="metric-content">
-              <div class="metric-header">
-                <span class="metric-name">活跃渠道</span>
-                <div class="metric-icon-wrap violet">
-                  <el-icon :size="18"><Connection /></el-icon>
-                </div>
-              </div>
-              <div class="metric-value">8</div>
-              <div class="metric-change neutral">
-                <span class="status-dot"></span>
-                <span>全部正常</span>
-              </div>
+          <div class="chart-legend">
+            <div class="legend-item">
+              <span class="legend-dot success"></span>
+              <span>成功调用</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot failed"></span>
+              <span>失败调用</span>
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <!-- 数据趋势图表 -->
-        <div class="chart-section">
-          <div class="chart-panel">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon">
-                  <el-icon><DataLine /></el-icon>
-                </div>
-                <span class="panel-title">调用趋势分析</span>
+    <!-- 资源状态与公告 - 非对称布局 -->
+    <div class="bottom-section">
+      <div class="resource-panel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <div class="panel-icon">
+              <el-icon><Monitor /></el-icon>
+            </div>
+            <span class="panel-title">渠道资源状态</span>
+          </div>
+          <div class="status-badge">
+            <span class="status-dot success"></span>
+            <span>8/8 正常</span>
+          </div>
+        </div>
+        <div class="resource-list">
+          <div class="resource-item" v-for="(channel, index) in channels" :key="index">
+            <div class="resource-main">
+              <div class="resource-icon" :class="channel.status">
+                <el-icon v-if="channel.status === 'success'"><CircleCheckFilled /></el-icon>
+                <el-icon v-else><WarningFilled /></el-icon>
               </div>
-              <div class="chart-type-selector">
-                <button 
-                  v-for="type in chartTypes" 
-                  :key="type.value"
-                  :class="['type-btn', { active: chartType === type.value }]"
-                  @click="chartType = type.value"
-                >
-                  {{ type.label }}
-                </button>
+              <div class="resource-info">
+                <span class="resource-name">{{ channel.name }}</span>
+                <span class="resource-meta">{{ channel.meta }}</span>
               </div>
             </div>
-            <div class="chart-content">
-              <div class="chart-metrics">
-                <div class="chart-metric">
-                  <span class="metric-label">总调用量</span>
-                  <span class="metric-number">128,456</span>
-                </div>
-                <div class="chart-metric">
-                  <span class="metric-label">峰值时段</span>
-                  <span class="metric-number">14:00</span>
-                </div>
-                <div class="chart-metric">
-                  <span class="metric-label">平均QPS</span>
-                  <span class="metric-number">89.2</span>
-                </div>
-              </div>
-              <div class="chart-visual">
-                <div class="chart-bars">
-                  <div v-for="(item, index) in trendData" :key="index" class="chart-bar-wrapper">
-                    <div class="bar-stack">
-                      <div 
-                        class="bar-success" 
-                        :style="{ height: item.success + '%' }"
-                      ></div>
-                      <div 
-                        class="bar-failed" 
-                        :style="{ height: item.failed + '%' }"
-                      ></div>
-                    </div>
-                    <span class="bar-label">{{ item.label }}</span>
-                  </div>
-                </div>
-                <div class="chart-axis-y">
-                  <span v-for="n in 5" :key="n">{{ (6 - n) * 20 }}k</span>
-                </div>
-              </div>
-              <div class="chart-legend">
-                <div class="legend-item">
-                  <span class="legend-dot success"></span>
-                  <span>成功调用</span>
-                </div>
-                <div class="legend-item">
-                  <span class="legend-dot failed"></span>
-                  <span>失败调用</span>
-                </div>
-              </div>
+            <div class="resource-status" :class="channel.status">
+              {{ channel.statusText }}
             </div>
           </div>
         </div>
-
-        <!-- 资源状态与公告 - 非对称布局 -->
-        <div class="bottom-section">
-          <div class="resource-panel">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon">
-                  <el-icon><Monitor /></el-icon>
-                </div>
-                <span class="panel-title">渠道资源状态</span>
-              </div>
-              <div class="status-badge">
-                <span class="status-dot success"></span>
-                <span>8/8 正常</span>
-              </div>
+      </div>
+      
+      <div class="notice-panel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <div class="panel-icon">
+              <el-icon><Notification /></el-icon>
             </div>
-            <div class="resource-list">
-              <div class="resource-item" v-for="(channel, index) in channels" :key="index">
-                <div class="resource-main">
-                  <div class="resource-icon" :class="channel.status">
-                    <el-icon v-if="channel.status === 'success'"><CircleCheckFilled /></el-icon>
-                    <el-icon v-else><WarningFilled /></el-icon>
-                  </div>
-                  <div class="resource-info">
-                    <span class="resource-name">{{ channel.name }}</span>
-                    <span class="resource-meta">{{ channel.meta }}</span>
-                  </div>
-                </div>
-                <div class="resource-status" :class="channel.status">
-                  {{ channel.statusText }}
-                </div>
-              </div>
-            </div>
+            <span class="panel-title">公告通知</span>
           </div>
-          
-          <div class="notice-panel">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon">
-                  <el-icon><Notification /></el-icon>
-                </div>
-                <span class="panel-title">公告通知</span>
-              </div>
-              <button class="view-all-btn">查看全部</button>
-            </div>
-            <div class="notice-list">
-              <div class="notice-item" v-for="(notice, index) in notices" :key="index">
-                <div class="notice-badge" :class="notice.type">{{ notice.badge }}</div>
-                <div class="notice-content">
-                  <div class="notice-title">{{ notice.title }}</div>
-                  <div class="notice-desc">{{ notice.desc }}</div>
-                  <div class="notice-time">{{ notice.time }}</div>
-                </div>
-              </div>
+          <button class="view-all-btn">查看全部</button>
+        </div>
+        <div class="notice-list">
+          <div class="notice-item" v-for="(notice, index) in notices" :key="index">
+            <div class="notice-badge" :class="notice.type">{{ notice.badge }}</div>
+            <div class="notice-content">
+              <div class="notice-title">{{ notice.title }}</div>
+              <div class="notice-desc">{{ notice.desc }}</div>
+              <div class="notice-time">{{ notice.time }}</div>
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <!-- 模型使用排行 -->
-        <div class="ranking-section">
-          <div class="ranking-panel">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon">
-                  <el-icon><Trophy /></el-icon>
-                </div>
-                <span class="panel-title">模型使用排行</span>
+    <!-- 模型使用排行 -->
+    <div class="ranking-section">
+      <div class="ranking-panel">
+        <div class="panel-header">
+          <div class="panel-title-wrap">
+            <div class="panel-icon">
+              <el-icon><Trophy /></el-icon>
+            </div>
+            <span class="panel-title">模型使用排行</span>
+          </div>
+        </div>
+        <div class="ranking-list">
+          <div v-for="(item, index) in modelRanking" :key="index" class="ranking-item">
+            <div class="ranking-number" :class="{ 'top3': index < 3 }">{{ index + 1 }}</div>
+            <div class="ranking-info">
+              <span class="model-name">{{ item.name }}</span>
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: item.percentage + '%', background: getProgressColor(index) }"></div>
               </div>
             </div>
-            <div class="ranking-list">
-              <div v-for="(item, index) in modelRanking" :key="index" class="ranking-item">
-                <div class="ranking-number" :class="{ 'top3': index < 3 }">{{ index + 1 }}</div>
-                <div class="ranking-info">
-                  <span class="model-name">{{ item.name }}</span>
-                  <div class="progress-bar">
-                    <div class="progress-fill" :style="{ width: item.percentage + '%', background: getProgressColor(index) }"></div>
-                  </div>
-                </div>
-                <div class="ranking-stats">
-                  <span class="call-count">{{ item.calls }}次</span>
-                  <span class="percentage">{{ item.percentage }}%</span>
-                </div>
-              </div>
+            <div class="ranking-stats">
+              <span class="call-count">{{ item.calls }}次</span>
+              <span class="percentage">{{ item.percentage }}%</span>
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   </div>
 </template>
@@ -376,16 +257,11 @@
 <script>
 import { ref, onMounted } from 'vue'
 import { useThemeStore } from '@/stores/theme.js'
-import Logo from '@/components/Logo.vue'
 
 export default {
   name: 'Analytics',
-  components: {
-    Logo
-  },
   setup() {
     const themeStore = useThemeStore()
-    const isCollapse = ref(false)
     const timeRange = ref('day')
     const chartType = ref('calls')
 
@@ -452,7 +328,6 @@ export default {
 
     return {
       themeStore,
-      isCollapse,
       timeRange,
       chartType,
       timeRanges,
@@ -471,214 +346,9 @@ export default {
 /* 导入字体 */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-.page-layout {
-  display: flex;
-  width: 100%;
-  height: 100vh;
-  background: #0F172A;
+.analytics-page {
+  padding: 24px;
   font-family: 'Inter', sans-serif;
-}
-
-/* 侧边栏样式 - 玻璃拟态 */
-.sidebar {
-  width: 240px;
-  background: 
-    linear-gradient(180deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.9) 100%);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-right: 1px solid rgba(255, 255, 255, 0.15);
-  display: flex;
-  flex-direction: column;
-  transition: width 0.3s ease;
-  box-shadow: 
-    0 0 0 1px rgba(59, 130, 246, 0.1) inset,
-    4px 0 24px rgba(0, 0, 0, 0.2);
-}
-
-.sidebar-header {
-  padding: 24px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.logo-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #60A5FA 0%, #3B82F6 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
-}
-
-.logo-text {
-  font-family: 'Orbitron', 'Exo 2', sans-serif;
-  font-size: 18px;
-  font-weight: 600;
-  color: #F8FAFC;
-  white-space: nowrap;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  background: linear-gradient(135deg, #F8FAFC 0%, #60A5FA 50%, #3B82F6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 0 30px rgba(59, 130, 246, 0.3);
-}
-
-.sidebar-menu {
-  flex: 1;
-  border-right: none;
-  background: transparent;
-  padding: 12px 8px;
-}
-
-.sidebar-menu :deep(.el-menu-item) {
-  color: rgba(248, 250, 252, 0.7);
-  border-radius: 10px;
-  margin: 4px 0;
-  height: 44px;
-  line-height: 44px;
-  font-family: 'Inter', sans-serif;
-  font-weight: 500;
-  transition: all 0.3s ease;
-}
-
-.sidebar-menu :deep(.el-menu-item:hover) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #F8FAFC;
-}
-
-.sidebar-menu :deep(.el-menu-item.is-active) {
-  background: rgba(59, 130, 246, 0.15);
-  color: #3B82F6;
-  font-weight: 600;
-}
-
-.sidebar-menu :deep(.el-icon) {
-  color: inherit;
-}
-
-.sidebar-footer {
-  padding: 16px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.collapse-btn {
-  width: 100%;
-  color: rgba(248, 250, 252, 0.6);
-  transition: color 0.2s ease;
-}
-
-.collapse-btn:hover {
-  color: #F8FAFC;
-}
-
-/* 主容器样式 */
-.main-container {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-/* 顶部栏样式 - 玻璃拟态 */
-.top-header {
-  height: 72px;
-  background: 
-    linear-gradient(180deg, rgba(30, 41, 59, 0.75) 0%, rgba(15, 23, 42, 0.85) 100%);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 28px;
-  box-shadow: 
-    0 0 0 1px rgba(59, 130, 246, 0.08) inset,
-    0 4px 24px rgba(0, 0, 0, 0.15);
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.theme-toggle,
-.glass-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(248, 250, 252, 0.8);
-  transition: all 0.3s ease;
-}
-
-.theme-toggle:hover,
-.glass-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #F8FAFC;
-  transform: translateY(-1px);
-}
-
-.notification-badge :deep(.el-badge__content) {
-  top: 6px;
-  right: 6px;
-  background: #EF4444;
-  border: none;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  padding: 6px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.3s ease;
-}
-
-.user-info:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.username {
-  font-size: 14px;
-  font-weight: 500;
-  color: #F8FAFC;
-}
-
-/* 主内容区样式 */
-.main-content {
-  flex: 1;
-  padding: 28px;
-  overflow-y: auto;
-  background:
-    /* 顶部蓝色光晕 */
-    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(59, 130, 246, 0.15) 0%, transparent 60%),
-    /* 左下角蓝色光晕 */
-    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(59, 130, 246, 0.12) 0%, transparent 50%),
-    /* 右下角紫色光晕 */
-    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(139, 92, 246, 0.08) 0%, transparent 50%),
-    /* 中央微弱光晕 */
-    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 70%),
-    /* 主背景渐变 */
-    linear-gradient(180deg, 
-      rgba(30, 41, 59, 0.95) 0%, 
-      rgba(15, 23, 42, 0.98) 30%,
-      rgba(15, 23, 42, 1) 50%, 
-      rgba(15, 23, 42, 0.98) 70%,
-      rgba(30, 41, 59, 0.95) 100%);
 }
 
 /* 页面头部 - 非对称布局 */
@@ -1490,213 +1160,6 @@ export default {
   text-align: right;
 }
 
-/* 深色模式适配 */
-.dark .sidebar {
-  background: 
-    linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(11, 17, 32, 0.98) 100%);
-}
-
-.dark .top-header {
-  background: 
-    linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(11, 17, 32, 0.95) 100%);
-}
-
-.dark .main-content {
-  background: 
-    /* 顶部蓝色光晕 */
-    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(59, 130, 246, 0.18) 0%, transparent 60%),
-    /* 左下角蓝色光晕 */
-    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(59, 130, 246, 0.15) 0%, transparent 50%),
-    /* 右下角紫色光晕 */
-    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
-    /* 中央微弱光晕 */
-    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(59, 130, 246, 0.06) 0%, transparent 70%),
-    /* 深色背景 */
-    linear-gradient(180deg, 
-      rgba(15, 23, 42, 0.98) 0%, 
-      rgba(11, 17, 32, 1) 50%, 
-      rgba(15, 23, 42, 0.98) 100%);
-}
-
-/* 浅色模式适配 */
-.page-layout:not(.dark) {
-  background: #F1F5F9;
-}
-
-.page-layout:not(.dark) .sidebar {
-  background: rgba(255, 255, 255, 0.8);
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.page-layout:not(.dark) .logo-text {
-  background: linear-gradient(135deg, #1E293B 0%, #3B82F6 50%, #2563EB 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
-}
-
-.page-layout:not(.dark) .sidebar-menu :deep(.el-menu-item) {
-  color: rgba(30, 41, 59, 0.7);
-}
-
-.page-layout:not(.dark) .sidebar-menu :deep(.el-menu-item:hover) {
-  background: rgba(0, 0, 0, 0.04);
-  color: #1E293B;
-}
-
-.page-layout:not(.dark) .sidebar-menu :deep(.el-menu-item.is-active) {
-  background: rgba(59, 130, 246, 0.1);
-  color: #2563EB;
-}
-
-.page-layout:not(.dark) .top-header {
-  background: rgba(255, 255, 255, 0.7);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.page-layout:not(.dark) .theme-toggle,
-.page-layout:not(.dark) .glass-btn {
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  color: rgba(30, 41, 59, 0.7);
-}
-
-.page-layout:not(.dark) .user-info {
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.page-layout:not(.dark) .username {
-  color: #1E293B;
-}
-
-.page-layout:not(.dark) .main-content {
-  background:
-    /* 顶部蓝色光晕 */
-    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(59, 130, 246, 0.12) 0%, transparent 60%),
-    /* 左下角蓝色光晕 */
-    radial-gradient(ellipse 80% 60% at 0% 100%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-    /* 右下角紫色光晕 */
-    radial-gradient(ellipse 70% 50% at 100% 100%, rgba(139, 92, 246, 0.06) 0%, transparent 50%),
-    /* 中央微弱光晕 */
-    radial-gradient(ellipse 50% 40% at 50% 50%, rgba(59, 130, 246, 0.04) 0%, transparent 70%),
-    /* 主背景渐变 */
-    linear-gradient(180deg, 
-      rgba(248, 250, 252, 0.95) 0%, 
-      rgba(241, 245, 249, 0.98) 30%,
-      rgba(241, 245, 249, 1) 50%, 
-      rgba(241, 245, 249, 0.98) 70%,
-      rgba(226, 232, 240, 0.95) 100%);
-}
-
-.page-layout:not(.dark) .page-title {
-  background: linear-gradient(135deg, #1E293B 0%, #475569 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.page-layout:not(.dark) .page-subtitle {
-  color: rgba(30, 41, 59, 0.6);
-}
-
-.page-layout:not(.dark) .time-selector,
-.page-layout:not(.dark) .chart-type-selector {
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-.page-layout:not(.dark) .time-btn,
-.page-layout:not(.dark) .type-btn {
-  color: rgba(30, 41, 59, 0.6);
-}
-
-.page-layout:not(.dark) .time-btn:hover,
-.page-layout:not(.dark) .type-btn:hover {
-  color: #1E293B;
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.page-layout:not(.dark) .time-btn.active,
-.page-layout:not(.dark) .type-btn.active {
-  background: rgba(59, 130, 246, 0.15);
-  color: #2563EB;
-}
-
-.page-layout:not(.dark) .metric-card,
-.page-layout:not(.dark) .chart-panel,
-.page-layout:not(.dark) .resource-panel,
-.page-layout:not(.dark) .notice-panel,
-.page-layout:not(.dark) .ranking-panel {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.page-layout:not(.dark) .metric-value,
-.page-layout:not(.dark) .panel-title,
-.page-layout:not(.dark) .metric-number,
-.page-layout:not(.dark) .resource-name,
-.page-layout:not(.dark) .notice-title,
-.page-layout:not(.dark) .model-name,
-.page-layout:not(.dark) .percentage {
-  color: #1E293B;
-}
-
-.page-layout:not(.dark) .metric-name,
-.page-layout:not(.dark) .metric-label,
-.page-layout:not(.dark) .bar-label,
-.page-layout:not(.dark) .legend-item,
-.page-layout:not(.dark) .resource-meta,
-.page-layout:not(.dark) .notice-desc,
-.page-layout:not(.dark) .notice-time,
-.page-layout:not(.dark) .call-count {
-  color: rgba(30, 41, 59, 0.55);
-}
-
-.page-layout:not(.dark) .resource-item,
-.page-layout:not(.dark) .notice-item,
-.page-layout:not(.dark) .ranking-item {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.6) 100%);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.page-layout:not(.dark) .resource-item:hover,
-.page-layout:not(.dark) .notice-item:hover,
-.page-layout:not(.dark) .ranking-item:hover {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.03) 100%);
-  border-color: rgba(59, 130, 246, 0.2);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
-}
-
-.page-layout:not(.dark) .view-all-btn {
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  color: rgba(30, 41, 59, 0.7);
-}
-
-.page-layout:not(.dark) .chart-metrics {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.page-layout:not(.dark) .chart-legend {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.page-layout:not(.dark) .bar-stack {
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
-}
-
-.page-layout:not(.dark) .progress-bar {
-  background: rgba(0, 0, 0, 0.06);
-}
-
-.page-layout:not(.dark) .ranking-number {
-  background: rgba(0, 0, 0, 0.06);
-  color: rgba(30, 41, 59, 0.5);
-}
-
 /* 响应式适配 */
 @media (max-width: 1280px) {
   .metrics-section {
@@ -1723,18 +1186,6 @@ export default {
 }
 
 @media (max-width: 768px) {
-  .sidebar {
-    width: 64px;
-  }
-  
-  .logo-text {
-    display: none;
-  }
-  
-  .main-content {
-    padding: 16px;
-  }
-  
   .page-title {
     font-size: 26px;
   }

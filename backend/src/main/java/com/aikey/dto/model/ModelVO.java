@@ -39,6 +39,8 @@ public class ModelVO {
 
     private BigDecimal outputPrice;
 
+    private BigDecimal quotaWeight;
+
     private Integer status;
 
     private String remark;

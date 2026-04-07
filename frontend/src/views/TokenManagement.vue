@@ -1,191 +1,21 @@
 <template>
   <div class="token-management">
-    <!-- Tab切换区域 -->
+    <!-- 标题区域 -->
     <div class="tab-card glass-card">
       <div class="tab-header">
-        <el-tabs v-model="activeTab" class="token-tabs" @tab-change="handleTabChange">
-          <el-tab-pane label="真实Key管理" name="real">
-            <template #label>
-              <span class="tab-label">
-                <el-icon><Key /></el-icon>
-                真实Key管理
-              </span>
-            </template>
-          </el-tab-pane>
-
-          <el-tab-pane label="虚拟Key管理" name="virtual">
-            <template #label>
-              <span class="tab-label">
-                <el-icon><Connection /></el-icon>
-                虚拟Key管理
-              </span>
-            </template>
-          </el-tab-pane>
-        </el-tabs>
+        <span class="tab-label page-title">
+          <el-icon><Connection /></el-icon>
+          虚拟Key管理
+        </span>
         <el-button type="primary" class="add-btn" @click="handleAdd">
           <el-icon><Plus /></el-icon>
-          新增{{ activeTab === 'real' ? '真实Key' : '虚拟Key' }}
+          新增虚拟Key
         </el-button>
       </div>
     </div>
 
-    <!-- ==================== Tab1: 真实Key管理 ==================== -->
-    <div v-show="activeTab === 'real'">
-      <!-- 搜索筛选区域 -->
-      <div class="filter-card glass-card">
-        <el-form :model="realSearchForm" inline class="filter-form">
-          <el-form-item label="搜索">
-            <el-input
-              v-model="realSearchForm.keyword"
-              placeholder="输入名称或Key掩码"
-              clearable
-              @clear="handleRealSearch"
-              @input="debounceRealSearch"
-              class="search-input"
-            >
-              <template #prefix>
-                <el-icon><Search /></el-icon>
-              </template>
-            </el-input>
-          </el-form-item>
-
-          <el-form-item label="渠道">
-            <el-select
-              v-model="realSearchForm.channelId"
-              placeholder="全部渠道"
-              clearable
-              @change="handleRealSearch"
-              class="channel-select"
-            >
-              <el-option
-                v-for="channel in channelOptions"
-                :key="channel.id"
-                :label="channel.channelName"
-                :value="channel.id"
-              />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item>
-            <el-button @click="resetRealSearch">重置</el-button>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- 数据表格区域 -->
-      <div class="table-card glass-card">
-        <el-table
-          :data="realTableData"
-          v-loading="realLoading"
-          stripe
-          border
-          style="width: 100%"
-          class="token-table real-key-table"
-        >
-          <el-table-column prop="id" label="ID" width="70" align="center" />
-
-          <el-table-column prop="keyName" label="Key名称" min-width="140" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="key-name">{{ row.keyName }}</span>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="keyMask" label="Key值(掩码)" min-width="200" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="key-value-wrapper">
-                <span class="key-mask-text">{{ row.keyMask || '***' }}</span>
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="channelId" label="关联渠道" width="130" align="center">
-            <template #default="{ row }">
-              <el-tag size="small" type="info">{{ getChannelName(row.channelId) }}</el-tag>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="status" label="状态" width="90" align="center">
-            <template #default="{ row }">
-              <el-switch
-                v-model="row.status"
-                :active-value="1"
-                :inactive-value="0"
-                active-color="#3B82F6"
-                inactive-color="#94A3B8"
-                @change="(val) => handleRealStatusChange(row, val)"
-                :loading="row.statusLoading"
-              />
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="expireTime" label="过期时间" width="170" align="center">
-            <template #default="{ row }">
-              <div class="expire-cell">
-                <span>{{ formatTime(row.expireTime) || '永不过期' }}</span>
-                <el-tag
-                  v-if="getExpireStatus(row.expireTime) === 'soon'"
-                  size="small"
-                  type="warning"
-                  class="expire-tag"
-                >
-                  即将过期
-                </el-tag>
-                <el-tag
-                  v-else-if="getExpireStatus(row.expireTime) === 'expired'"
-                  size="small"
-                  type="danger"
-                  class="expire-tag"
-                >
-                  已过期
-                </el-tag>
-              </div>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="usageCount" label="使用次数" width="100" align="center" sortable>
-            <template #default="{ row }">
-              <span class="usage-count">{{ row.usageCount || 0 }}</span>
-            </template>
-          </el-table-column>
-
-          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip>
-            <template #default="{ row }">
-              <span class="remark-text">{{ row.remark || '-' }}</span>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="操作" width="150" align="center">
-            <template #default="{ row }">
-              <div class="action-buttons">
-                <el-button type="primary" link size="small" @click="handleRealEdit(row)">
-                  <el-icon><Edit /></el-icon>编辑
-                </el-button>
-                <el-button type="danger" link size="small" @click="handleRealDelete(row)">
-                  <el-icon><Delete /></el-icon>删除
-                </el-button>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-
-        <!-- 分页组件 -->
-        <div class="pagination-wrapper">
-          <el-pagination
-            v-model:current-page="realPagination.page"
-            v-model:page-size="realPagination.size"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="realPagination.total"
-            layout="total, sizes, prev, pager, next, jumper"
-            background
-            @size-change="handleRealSizeChange"
-            @current-change="handleRealPageChange"
-          />
-        </div>
-      </div>
-    </div>
-
-    <!-- ==================== Tab2: 虚拟Key管理 ==================== -->
-    <div v-show="activeTab === 'virtual'">
+    <!-- ==================== 虚拟Key管理 ==================== -->
+    <div>
       <!-- 搜索筛选区域 -->
       <div class="filter-card glass-card">
         <el-form :model="virtualSearchForm" inline class="filter-form">
@@ -340,100 +170,6 @@
       </div>
     </div>
 
-    <!-- ==================== 真实Key新增/编辑弹窗 ==================== -->
-    <el-dialog
-      v-model="realDialogVisible"
-      :title="realDialogTitle"
-      width="620px"
-      :close-on-click-modal="false"
-      class="token-dialog real-key-dialog"
-      destroy-on-close
-    >
-      <el-form
-        ref="realFormRef"
-        :model="realFormData"
-        :rules="realFormRules"
-        label-width="110px"
-        label-position="right"
-        class="token-form"
-      >
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="Key名称" prop="keyName">
-              <el-input v-model="realFormData.keyName" placeholder="请输入Key名称" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="关联渠道" prop="channelId">
-              <el-select v-model="realFormData.channelId" placeholder="请选择渠道" style="width: 100%">
-                <el-option
-                  v-for="channel in channelOptions"
-                  :key="channel.id"
-                  :label="channel.channelName"
-                  :value="channel.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-form-item label="API Key值" prop="keyValue">
-          <el-input
-            v-model="realFormData.keyValue"
-            type="password"
-            show-password
-            :placeholder="isRealEdit ? '留空则不修改Key值' : '请输入真实的API Key值'"
-          />
-        </el-form-item>
-
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="状态">
-              <el-switch
-                v-model="realFormData.status"
-                :active-value="1"
-                :inactive-value="0"
-                active-color="#3B82F6"
-                inactive-color="#94A3B8"
-                active-text="启用"
-                inactive-text="禁用"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="过期时间">
-              <el-date-picker
-                v-model="realFormData.expireTime"
-                type="datetime"
-                placeholder="选择过期时间（可选）"
-                format="YYYY-MM-DD HH:mm:ss"
-                value-format="YYYY-MM-DDTHH:mm:ss"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-form-item label="备注">
-          <el-input
-            v-model="realFormData.remark"
-            type="textarea"
-            :rows="3"
-            placeholder="可选，添加备注信息"
-          />
-        </el-form-item>
-      </el-form>
-
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="realDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="realSubmitLoading" @click="handleRealSubmit">
-            {{ isRealEdit ? '更新' : '创建' }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
     <!-- ==================== 虚拟Key新增/编辑弹窗 ==================== -->
     <el-dialog
       v-model="virtualDialogVisible"
@@ -555,18 +291,10 @@ import {
   Search,
   Edit,
   Delete,
-  Key,
   Connection,
   DocumentCopy,
   Refresh
 } from '@element-plus/icons-vue'
-import {
-  getRealKeyList,
-  createRealKey,
-  updateRealKey,
-  toggleRealKeyStatus,
-  deleteRealKey
-} from '@/api/realkey'
 import {
   getVirtualKeyList,
   createVirtualKey,
@@ -575,12 +303,8 @@ import {
   toggleVirtualKeyStatus,
   deleteVirtualKey
 } from '@/api/virtualkey'
-import { getChannelList } from '@/api/channel'
 
 // ==================== 全局状态 ====================
-
-const activeTab = ref('real')
-const channelOptions = ref([])
 
 // 获取当前登录用户ID（从 localStorage 中的 userInfo 或 token 解析）
 function getCurrentUserId() {
@@ -592,65 +316,7 @@ function getCurrentUserId() {
   }
 }
 
-// ==================== Tab1: 真实Key相关数据 ====================
-
-const realTableData = ref([])
-const realLoading = ref(false)
-
-const realSearchForm = reactive({
-  keyword: '',
-  channelId: ''
-})
-
-const realPagination = reactive({
-  page: 1,
-  size: 10,
-  total: 0
-})
-
-const realDialogVisible = ref(false)
-const realDialogTitle = computed(() => isRealEdit.value ? '编辑真实Key' : '新增真实Key')
-const isRealEdit = ref(false)
-const currentRealEditId = ref(null)
-const realSubmitLoading = ref(false)
-
-const realFormRef = ref()
-const realFormData = reactive({
-  keyName: '',
-  keyValue: '',
-  channelId: '',
-  status: 1,
-  expireTime: null,
-  remark: ''
-})
-
-const realFormRules = {
-  keyName: [
-    { required: true, message: '请输入Key名称', trigger: 'blur' },
-    { min: 2, max: 100, message: '长度在2到100个字符', trigger: 'blur' }
-  ],
-  channelId: [
-    { required: true, message: '请选择关联渠道', trigger: 'change' }
-  ],
-  keyValue: [
-    {
-      validator: (rule, value, callback) => {
-        if (!isRealEdit.value && !value) {
-          callback(new Error('请输入API Key值'))
-        } else if (value && value.length < 10) {
-          callback(new Error('API Key长度至少10个字符'))
-        } else {
-          callback()
-        }
-      },
-      trigger: 'blur'
-    }
-  ]
-}
-
-let realSearchTimer = null
-
-// ==================== Tab2: 虚拟Key相关数据 ====================
+// ==================== 虚拟Key相关数据 ====================
 
 const virtualTableData = ref([])
 const virtualLoading = ref(false)
@@ -702,122 +368,10 @@ let virtualSearchTimer = null
 // ==================== 生命周期 ====================
 
 onMounted(() => {
-  fetchChannelOptions()
-  fetchRealKeyList()
+  fetchVirtualKeyList()
 })
 
-// ==================== 公共方法 ====================
-
-async function fetchChannelOptions() {
-  try {
-    const res = await getChannelList({ page: 1, size: 1000 })
-    if (res.code === 200 && res.data) {
-      channelOptions.value = res.data.records || []
-    }
-  } catch (error) {
-    console.error('获取渠道列表失败:', error)
-  }
-}
-
-function getChannelName(channelId) {
-  const channel = channelOptions.value.find(c => c.id === channelId)
-  return channel ? channel.channelName : '-'
-}
-
-// ==================== Tab1: 真实Key API方法 ====================
-
-async function fetchRealKeyList() {
-  realLoading.value = true
-  try {
-    const params = {
-      page: realPagination.page,
-      size: realPagination.size,
-      keyword: realSearchForm.keyword || undefined,
-      channelId: realSearchForm.channelId || undefined
-    }
-
-    const res = await getRealKeyList(params)
-
-    if (res.code === 200 && res.data) {
-      realTableData.value = (res.data.records || []).map(item => ({
-        ...item,
-        statusLoading: false
-      }))
-      realPagination.total = res.data.total || 0
-    } else {
-      ElMessage.error(res.message || '获取真实Key列表失败')
-    }
-  } catch (error) {
-    console.error('获取真实Key列表失败:', error)
-  } finally {
-    realLoading.value = false
-  }
-}
-
-async function handleRealCreate() {
-  realSubmitLoading.value = true
-  try {
-    const data = { ...realFormData }
-    const res = await createRealKey(data)
-
-    if (res.code === 200) {
-      ElMessage.success('真实Key创建成功')
-      realDialogVisible.value = false
-      fetchRealKeyList()
-    } else {
-      ElMessage.error(res.message || '创建失败')
-    }
-  } catch (error) {
-    console.error('创建真实Key失败:', error)
-  } finally {
-    realSubmitLoading.value = false
-  }
-}
-
-async function handleRealUpdate() {
-  if (!currentRealEditId.value) return
-
-  realSubmitLoading.value = true
-  try {
-    const data = { ...realFormData }
-    if (!data.keyValue) {
-      delete data.keyValue
-    }
-    const res = await updateRealKey(currentRealEditId.value, data)
-
-    if (res.code === 200) {
-      ElMessage.success('真实Key更新成功')
-      realDialogVisible.value = false
-      fetchRealKeyList()
-    } else {
-      ElMessage.error(res.message || '更新失败')
-    }
-  } catch (error) {
-    console.error('更新真实Key失败:', error)
-  } finally {
-    realSubmitLoading.value = false
-  }
-}
-
-async function handleRealDeleteAction(id) {
-  try {
-    const res = await deleteRealKey(id)
-
-    if (res.code === 200) {
-      ElMessage.success('删除成功')
-      if (realTableData.value.length === 1 && realPagination.page > 1) {
-        realPagination.page--
-      }
-      fetchRealKeyList()
-    } else {
-      ElMessage.error(res.message || '删除失败')
-    }
-  } catch (error) {
-    console.error('删除真实Key失败:', error)
-  }
-}
-
-// ==================== Tab2: 虚拟Key API方法 ====================
+// ==================== 虚拟Key API方法 ====================
 
 async function fetchVirtualKeyList() {
   virtualLoading.value = true
@@ -910,116 +464,14 @@ async function handleVirtualDeleteAction(id) {
   }
 }
 
-// ==================== Tab1: 真实Key事件处理 ====================
-
-function debounceRealSearch() {
-  if (realSearchTimer) clearTimeout(realSearchTimer)
-  realSearchTimer = setTimeout(() => {
-    realPagination.page = 1
-    fetchRealKeyList()
-  }, 500)
-}
-
-function handleRealSearch() {
-  realPagination.page = 1
-  fetchRealKeyList()
-}
-
-function resetRealSearch() {
-  realSearchForm.keyword = ''
-  realSearchForm.channelId = ''
-  realPagination.page = 1
-  fetchRealKeyList()
-}
-
-function handleRealSizeChange(val) {
-  realPagination.size = val
-  realPagination.page = 1
-  fetchRealKeyList()
-}
-
-function handleRealPageChange(val) {
-  realPagination.page = val
-  fetchRealKeyList()
-}
+// ==================== 虚拟Key事件处理 ====================
 
 function handleAdd() {
-  if (activeTab.value === 'real') {
-    isRealEdit.value = false
-    currentRealEditId.value = null
-    resetRealFormData()
-    realDialogVisible.value = true
-  } else {
-    isVirtualEdit.value = false
-    currentVirtualEditId.value = null
-    resetVirtualFormData()
-    virtualDialogVisible.value = true
-  }
+  isVirtualEdit.value = false
+  currentVirtualEditId.value = null
+  resetVirtualFormData()
+  virtualDialogVisible.value = true
 }
-
-function handleRealEdit(row) {
-  isRealEdit.value = true
-  currentRealEditId.value = row.id
-  Object.assign(realFormData, {
-    keyName: row.keyName,
-    keyValue: '',
-    channelId: row.channelId,
-    status: row.status,
-    expireTime: row.expireTime || null,
-    remark: row.remark || ''
-  })
-  realDialogVisible.value = true
-}
-
-function handleRealSubmit() {
-  realFormRef.value?.validate((valid) => {
-    if (valid) {
-      if (isRealEdit.value) {
-        handleRealUpdate()
-      } else {
-        handleRealCreate()
-      }
-    }
-  })
-}
-
-function handleRealDelete(row) {
-  ElMessageBox.confirm(
-    `确定要删除真实Key「${row.keyName}」吗？删除后不可恢复。`,
-    '删除确认',
-    {
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-      type: 'warning',
-      confirmButtonClass: 'el-button--danger'
-    }
-  ).then(() => {
-    handleRealDeleteAction(row.id)
-  }).catch(() => {})
-}
-
-async function handleRealStatusChange(row, newStatus) {
-  row.statusLoading = true
-  try {
-    const res = await toggleRealKeyStatus(row.id)
-
-    if (res.code === 200) {
-      ElMessage.success(newStatus === 1 ? '已启用' : '已禁用')
-    } else {
-      // 回滚状态
-      row.status = newStatus === 1 ? 0 : 1
-      ElMessage.error(res.message || '状态更新失败')
-    }
-  } catch (error) {
-    console.error('状态更新失败:', error)
-    row.status = newStatus === 1 ? 0 : 1
-    ElMessage.error(error.message || '状态更新失败')
-  } finally {
-    row.statusLoading = false
-  }
-}
-
-// ==================== Tab2: 虚拟Key事件处理 ====================
 
 function debounceVirtualSearch() {
   if (virtualSearchTimer) clearTimeout(virtualSearchTimer)
@@ -1139,29 +591,7 @@ async function handleVirtualStatusChange(row, newStatus) {
   }
 }
 
-// ==================== Tab切换 ====================
-
-function handleTabChange(tabName) {
-  if (tabName === 'real' && realTableData.value.length === 0) {
-    fetchRealKeyList()
-  } else if (tabName === 'virtual' && virtualTableData.value.length === 0) {
-    fetchVirtualKeyList()
-  }
-}
-
 // ==================== 工具方法 ====================
-
-function resetRealFormData() {
-  Object.assign(realFormData, {
-    keyName: '',
-    keyValue: '',
-    channelId: '',
-    status: 1,
-    expireTime: null,
-    remark: ''
-  })
-  realFormRef.value?.resetFields()
-}
 
 function resetVirtualFormData() {
   Object.assign(virtualFormData, {
@@ -1299,44 +729,10 @@ function getQuotaTypeTagType(type) {
   padding: 4px 20px 16px;
 }
 
-.token-tabs {
-  --el-tabs-header-height: 48px;
-}
-
-.token-tabs :deep(.el-tabs__header) {
-  margin-bottom: 0;
-  border-bottom: none;
-}
-
-.token-tabs :deep(.el-tabs__nav-wrap::after) {
-  display: none;
-}
-
-.token-tabs :deep(.el-tabs__item) {
-  height: 44px;
-  line-height: 44px;
-  padding: 0 24px;
-  font-size: 14px;
-  font-weight: 500;
-  color: rgba(248, 250, 252, 0.65);
-  transition: all 0.3s ease;
-  border-radius: 10px;
-  margin-right: 8px;
-}
-
-.token-tabs :deep(.el-tabs__item:hover) {
-  color: rgba(248, 250, 252, 0.85);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.token-tabs :deep(.el-tabs__item.is-active) {
-  color: #3B82F6;
-  background: rgba(59, 130, 246, 0.12);
+.page-title {
+  font-size: 16px;
   font-weight: 600;
-}
-
-.token-tabs :deep(.el-tabs__active-bar) {
-  display: none;
+  color: #F8FAFC;
 }
 
 .tab-label {

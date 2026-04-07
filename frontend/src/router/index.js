@@ -46,6 +46,18 @@ const routes = [
         meta: { title: '渠道管理', requiresAuth: true }
       },
       {
+        path: 'teams',
+        name: 'Teams',
+        component: () => import('@/views/TeamManagement.vue'),
+        meta: { title: '团队管理', requiresAuth: true }
+      },
+      {
+        path: 'projects',
+        name: 'Projects',
+        component: () => import('@/views/ProjectManagement.vue'),
+        meta: { title: '项目管理', requiresAuth: true }
+      },
+      {
         path: 'analytics',
         name: 'Analytics',
         component: () => import('@/views/Analytics.vue'),

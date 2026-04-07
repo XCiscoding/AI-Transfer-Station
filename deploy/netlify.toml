@@ -1,0 +1,45 @@
+# Netlify 部署配置
+# AI调度中心 - 前端部署配置
+
+[build]
+  # 前端代码目录
+  base = "frontend"
+  # 构建命令
+  command = "npm run build"
+  # 构建输出目录
+  publish = "dist"
+
+[build.environment]
+  # Node.js版本
+  NODE_VERSION = "20"
+  # NPM版本
+  NPM_VERSION = "10"
+
+# 路由重写规则 - 支持Vue Router的history模式
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# API代理配置
+# 注意：将 YOUR_SERVER_IP 替换为你的云服务器公网IP
+[[redirects]]
+  from = "/api/*"
+  to = "http://YOUR_SERVER_IP:8080/api/:splat"
+  status = 200
+  force = true
+
+# 安全响应头
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# 静态资源缓存
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

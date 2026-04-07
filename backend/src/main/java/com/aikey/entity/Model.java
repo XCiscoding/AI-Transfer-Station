@@ -51,6 +51,9 @@ public class Model {
     @Column(name = "output_price", precision = 10, scale = 6)
     private BigDecimal outputPrice = new BigDecimal("0.000000");
 
+    @Column(name = "quota_weight", nullable = false)
+    private BigDecimal quotaWeight = new BigDecimal("1.00");
+
     @Column(name = "status", nullable = false, columnDefinition = "TINYINT")
     private Integer status = 1;
 

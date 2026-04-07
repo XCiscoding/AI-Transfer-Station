@@ -78,8 +78,8 @@ public class GatewayOrchestrationService {
         // 3. 限流检查
         rateLimitService.checkRateLimit(virtualKey);
 
-        // 4. 额度预检查
-        quotaService.checkQuota(virtualKey);
+        // 4. 额度预检查（三层漏斗）
+        quotaService.checkQuotaWithFunnel(virtualKey);
 
         // 5. 故障转移循环
         Set<Long> excludedChannelIds = new HashSet<>();
@@ -185,11 +185,26 @@ public class GatewayOrchestrationService {
     private void handleSuccess(VirtualKey virtualKey, DispatchResult dispatchResult,
                                 ChatCompletionResponse response, String traceId,
                                 String clientIp, String userAgent, int responseTime, String requestModel) {
-        // 额度扣减
+        // 加权额度扣减
         UsageInfo usage = response.getUsage();
         if (usage != null && usage.getTotalTokens() != null && usage.getTotalTokens() > 0) {
-            BigDecimal amount = BigDecimal.valueOf(usage.getTotalTokens());
-            quotaService.deductQuota(virtualKey.getId(), amount);
+            BigDecimal rawTokens = BigDecimal.valueOf(usage.getTotalTokens());
+
+            // 获取三层倍率
+            BigDecimal modelWeight = dispatchResult.getModel().getQuotaWeight();
+            BigDecimal teamWeight = quotaService.getTeamWeight(virtualKey.getTeamId());
+            BigDecimal projectWeight = quotaService.getProjectWeight(virtualKey.getProjectId());
+
+            // 计算加权消耗量
+            BigDecimal weightedAmount = quotaService.calculateWeightedAmount(
+                    rawTokens, modelWeight, teamWeight, projectWeight);
+
+            // 三层同步扣减
+            quotaService.deductQuotaWithFunnel(
+                    virtualKey.getId(),
+                    virtualKey.getTeamId(),
+                    virtualKey.getProjectId(),
+                    weightedAmount);
         }
 
         // 更新lastUsedTime

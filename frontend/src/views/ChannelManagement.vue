@@ -120,11 +120,14 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="220" fixed="right" align="center">
+        <el-table-column label="操作" width="280" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
               <el-button type="primary" link size="small" @click="handleEdit(row)">
                 <el-icon><Edit /></el-icon>编辑
+              </el-button>
+              <el-button type="info" link size="small" @click="handleOpenKeys(row)">
+                <el-icon><Key /></el-icon>Keys
               </el-button>
               <el-button type="success" link size="small" @click="handleTest(row)">
                 <el-icon><Connection /></el-icon>测试
@@ -314,6 +317,124 @@
         </div>
       </template>
     </el-dialog>
+    <!-- 真实Key管理抽屉 -->
+    <el-drawer
+      v-model="keyDrawerVisible"
+      :title="`${currentChannelName} — 真实Key管理`"
+      direction="rtl"
+      size="700px"
+      :destroy-on-close="true"
+      class="key-drawer"
+    >
+      <div class="key-drawer-body">
+        <!-- 操作栏 -->
+        <div class="key-toolbar">
+          <span class="key-count">共 {{ realKeyList.length }} 个Key</span>
+          <el-button type="primary" size="small" @click="handleAddRealKey">
+            <el-icon><Plus /></el-icon>新增Key
+          </el-button>
+        </div>
+
+        <!-- Key列表 -->
+        <el-table
+          :data="realKeyList"
+          v-loading="realKeyLoading"
+          stripe
+          border
+          style="width: 100%"
+          class="real-key-table"
+        >
+          <el-table-column prop="keyName" label="Key名称" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span class="key-name">{{ row.keyName }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="Key值" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span class="key-mask">{{ row.keyMask || '***' }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column prop="status" label="状态" width="80" align="center">
+            <template #default="{ row }">
+              <el-switch
+                v-model="row.status"
+                :active-value="1"
+                :inactive-value="0"
+                active-color="#3B82F6"
+                inactive-color="#94A3B8"
+                @change="(val) => handleRealKeyStatusChange(row, val)"
+                :loading="row.statusLoading"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="操作" width="130" align="center">
+            <template #default="{ row }">
+              <div class="action-buttons">
+                <el-button type="primary" link size="small" @click="handleEditRealKey(row)">
+                  <el-icon><Edit /></el-icon>编辑
+                </el-button>
+                <el-button type="danger" link size="small" @click="handleDeleteRealKey(row)">
+                  <el-icon><Delete /></el-icon>删除
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-drawer>
+
+    <!-- 真实Key新增/编辑弹窗 -->
+    <el-dialog
+      v-model="realKeyDialogVisible"
+      :title="isRealKeyEdit ? '编辑真实Key' : '新增真实Key'"
+      width="520px"
+      :close-on-click-modal="false"
+      class="channel-dialog"
+      destroy-on-close
+    >
+      <el-form
+        ref="realKeyFormRef"
+        :model="realKeyFormData"
+        :rules="realKeyFormRules"
+        label-width="100px"
+        label-position="right"
+        class="channel-form"
+      >
+        <el-form-item label="Key名称" prop="keyName">
+          <el-input v-model="realKeyFormData.keyName" placeholder="请输入Key名称" />
+        </el-form-item>
+
+        <el-form-item label="Key值" prop="keyValue">
+          <el-input
+            v-model="realKeyFormData.keyValue"
+            type="password"
+            show-password
+            :placeholder="isRealKeyEdit ? '留空则不修改' : '请输入真实API Key'"
+          />
+        </el-form-item>
+
+        <el-form-item label="备注">
+          <el-input
+            v-model="realKeyFormData.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="可选"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="realKeyDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="realKeySubmitLoading" @click="handleRealKeySubmit">
+            {{ isRealKeyEdit ? '更新' : '创建' }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -325,7 +446,8 @@ import {
   Search,
   Edit,
   Delete,
-  Connection
+  Connection,
+  Key
 } from '@element-plus/icons-vue'
 import {
   getChannelList,
@@ -333,6 +455,13 @@ import {
   updateChannel,
   deleteChannel
 } from '@/api/channel'
+import {
+  getRealKeyList,
+  createRealKey,
+  updateRealKey,
+  toggleRealKeyStatus,
+  deleteRealKey
+} from '@/api/realkey'
 
 // ==================== 响应式数据 ====================
 
@@ -751,6 +880,162 @@ function getTypeTagType(type) {
   }
   return typeMap[type] || 'info'
 }
+
+// ==================== 真实Key管理 ====================
+
+const keyDrawerVisible = ref(false)
+const currentChannelId = ref(null)
+const currentChannelName = ref('')
+const realKeyList = ref([])
+const realKeyLoading = ref(false)
+
+const realKeyDialogVisible = ref(false)
+const isRealKeyEdit = ref(false)
+const currentRealKeyEditId = ref(null)
+const realKeySubmitLoading = ref(false)
+const realKeyFormRef = ref()
+
+const realKeyFormData = reactive({
+  keyName: '',
+  keyValue: '',
+  remark: ''
+})
+
+const realKeyFormRules = {
+  keyName: [
+    { required: true, message: '请输入Key名称', trigger: 'blur' }
+  ],
+  keyValue: [
+    {
+      validator: (rule, value, callback) => {
+        if (!isRealKeyEdit.value && !value) {
+          callback(new Error('请输入真实API Key'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ]
+}
+
+function handleOpenKeys(row) {
+  currentChannelId.value = row.id
+  currentChannelName.value = row.channelName
+  keyDrawerVisible.value = true
+  fetchRealKeyList()
+}
+
+async function fetchRealKeyList() {
+  realKeyLoading.value = true
+  try {
+    const res = await getRealKeyList({ channelId: currentChannelId.value, page: 1, size: 100 })
+    if (res.code === 200 && res.data) {
+      realKeyList.value = (res.data.records || []).map(item => ({ ...item, statusLoading: false }))
+    } else {
+      ElMessage.error(res.message || '获取Key列表失败')
+    }
+  } catch (error) {
+    console.error('获取Key列表失败:', error)
+  } finally {
+    realKeyLoading.value = false
+  }
+}
+
+function handleAddRealKey() {
+  isRealKeyEdit.value = false
+  currentRealKeyEditId.value = null
+  Object.assign(realKeyFormData, { keyName: '', keyValue: '', remark: '' })
+  realKeyDialogVisible.value = true
+}
+
+function handleEditRealKey(row) {
+  isRealKeyEdit.value = true
+  currentRealKeyEditId.value = row.id
+  Object.assign(realKeyFormData, {
+    keyName: row.keyName,
+    keyValue: '',
+    remark: row.remark || ''
+  })
+  realKeyDialogVisible.value = true
+}
+
+function handleRealKeySubmit() {
+  realKeyFormRef.value?.validate(async (valid) => {
+    if (!valid) return
+    realKeySubmitLoading.value = true
+    try {
+      let res
+      if (isRealKeyEdit.value) {
+        const data = { keyName: realKeyFormData.keyName, remark: realKeyFormData.remark }
+        if (realKeyFormData.keyValue) data.keyValue = realKeyFormData.keyValue
+        res = await updateRealKey(currentRealKeyEditId.value, data)
+      } else {
+        res = await createRealKey({
+          channelId: currentChannelId.value,
+          keyName: realKeyFormData.keyName,
+          keyValue: realKeyFormData.keyValue,
+          remark: realKeyFormData.remark
+        })
+      }
+      if (res.code === 200) {
+        ElMessage.success(isRealKeyEdit.value ? '更新成功' : '创建成功')
+        realKeyDialogVisible.value = false
+        fetchRealKeyList()
+      } else {
+        ElMessage.error(res.message || '操作失败')
+      }
+    } catch (error) {
+      console.error('Key操作失败:', error)
+      ElMessage.error(error.message || '操作失败')
+    } finally {
+      realKeySubmitLoading.value = false
+    }
+  })
+}
+
+function handleDeleteRealKey(row) {
+  ElMessageBox.confirm(
+    `确定要删除Key「${row.keyName}」吗？`,
+    '删除确认',
+    {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    try {
+      const res = await deleteRealKey(row.id)
+      if (res.code === 200) {
+        ElMessage.success('删除成功')
+        fetchRealKeyList()
+      } else {
+        ElMessage.error(res.message || '删除失败')
+      }
+    } catch (error) {
+      ElMessage.error(error.message || '删除失败')
+    }
+  }).catch(() => {})
+}
+
+async function handleRealKeyStatusChange(row, newStatus) {
+  row.statusLoading = true
+  try {
+    const res = await toggleRealKeyStatus(row.id)
+    if (res.code === 200) {
+      ElMessage.success(newStatus === 1 ? '已启用' : '已禁用')
+    } else {
+      row.status = newStatus === 1 ? 0 : 1
+      ElMessage.error(res.message || '状态更新失败')
+    }
+  } catch (error) {
+    row.status = newStatus === 1 ? 0 : 1
+    ElMessage.error(error.message || '状态更新失败')
+  } finally {
+    row.statusLoading = false
+  }
+}
 </script>
 
 <style scoped>
@@ -1135,6 +1420,90 @@ function getTypeTagType(type) {
 .channel-table :deep(.el-switch.is-checked .el-switch__core) {
   background: #3B82F6;
   border-color: #3B82F6;
+}
+
+/* Key抽屉样式 */
+.key-drawer :deep(.el-drawer) {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.95) 100%);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.key-drawer :deep(.el-drawer__header) {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #F8FAFC;
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 0;
+}
+
+.key-drawer :deep(.el-drawer__body) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.key-drawer-body {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.key-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.key-count {
+  font-size: 13px;
+  color: rgba(248, 250, 252, 0.55);
+}
+
+.real-key-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(30, 41, 59, 0.6);
+  --el-table-row-hover-bg-color: rgba(59, 130, 246, 0.08);
+  --el-table-border-color: rgba(255, 255, 255, 0.08);
+  --el-table-header-text-color: rgba(248, 250, 252, 0.85);
+  --el-table-text-color: #F8FAFC;
+  --el-font-size-base: 13px;
+}
+
+.real-key-table :deep(.el-table__header th) {
+  background: rgba(30, 41, 59, 0.7) !important;
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 2px solid rgba(59, 130, 246, 0.2);
+}
+
+.real-key-table :deep(.el-table__body td) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 10px 0;
+}
+
+.real-key-table :deep(.el-table__body tr:hover > td) {
+  background: rgba(59, 130, 246, 0.06) !important;
+}
+
+.real-key-table :deep(.el-switch.is-checked .el-switch__core) {
+  background: #3B82F6;
+  border-color: #3B82F6;
+}
+
+.key-name {
+  font-weight: 600;
+  color: #F8FAFC;
+}
+
+.key-mask {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.6);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 8px;
+  border-radius: 4px;
 }
 
 /* 响应式布局 */

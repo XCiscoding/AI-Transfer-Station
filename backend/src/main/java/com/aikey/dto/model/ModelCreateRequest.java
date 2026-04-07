@@ -34,5 +34,7 @@ public class ModelCreateRequest {
 
     private BigDecimal outputPrice = BigDecimal.ZERO;
 
+    private BigDecimal quotaWeight = BigDecimal.ONE;
+
     private String remark;
 }
