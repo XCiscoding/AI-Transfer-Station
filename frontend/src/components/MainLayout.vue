@@ -51,11 +51,6 @@
           <template #title>请求日志</template>
         </el-menu-item>
 
-        <el-menu-item index="/quota-flow">
-          <el-icon><Coin /></el-icon>
-          <template #title>额度流水</template>
-        </el-menu-item>
-
         <el-divider />
 
         <el-menu-item index="/profile">

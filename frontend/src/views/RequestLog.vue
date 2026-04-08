@@ -233,6 +233,8 @@ const formatCredits = (val) => {
 }
 
 // 获取日志列表
+const toIsoDateTime = (value) => value?.replace(' ', 'T')
+
 const fetchLogs = async () => {
   loading.value = true
   try {
@@ -241,8 +243,8 @@ const fetchLogs = async () => {
       size: pagination.size
     }
     if (searchForm.timeRange && searchForm.timeRange.length === 2) {
-      params.startTime = searchForm.timeRange[0]
-      params.endTime = searchForm.timeRange[1]
+      params.startTime = toIsoDateTime(searchForm.timeRange[0])
+      params.endTime = toIsoDateTime(searchForm.timeRange[1])
     }
     if (searchForm.modelName) params.modelName = searchForm.modelName
     if (searchForm.status !== null && searchForm.status !== '') params.status = searchForm.status
@@ -254,7 +256,7 @@ const fetchLogs = async () => {
       pagination.total = res.data.total || 0
     }
   } catch (e) {
-    ElMessage.error('获取日志列表失败')
+    ElMessage.error('获取请求日志失败')
   } finally {
     loading.value = false
   }
