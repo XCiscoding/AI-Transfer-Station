@@ -12,6 +12,10 @@ export function rechargeQuota(data) {
   return request({ url: '/api/v1/quota/recharge', method: 'post', data })
 }
 
+export function adjustQuota(data) {
+  return request({ url: '/api/v1/quota/adjust', method: 'post', data })
+}
+
 export function resetQuota(data) {
   return request({ url: '/api/v1/quota/reset', method: 'post', data })
 }

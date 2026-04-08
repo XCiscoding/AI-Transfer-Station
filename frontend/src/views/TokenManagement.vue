@@ -333,8 +333,11 @@ async function fetchModelGroups() {
     const res = await getModelGroupAll()
     if (res.code === 200 && res.data) {
       modelGroupOptions.value = res.data
+    } else {
+      modelGroupOptions.value = []
     }
   } catch (e) {
+    modelGroupOptions.value = []
     console.warn('获取模型分组失败:', e)
   }
 }

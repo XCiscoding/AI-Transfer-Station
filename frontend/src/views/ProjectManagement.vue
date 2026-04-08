@@ -302,8 +302,11 @@ async function fetchTeamOptions() {
     const res = await getTeamList({ page: 1, size: 100 })
     if (res.code === 200 && res.data) {
       teamOptions.value = res.data.records || []
+    } else {
+      teamOptions.value = []
     }
   } catch (error) {
+    teamOptions.value = []
     console.error('获取团队列表失败:', error)
   }
 }

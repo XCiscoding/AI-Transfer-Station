@@ -15,7 +15,7 @@
         <div class="filter-item">
           <label class="filter-label">分析维度</label>
           <el-select v-model="dimension" class="dark-select" @change="handleDimensionChange">
-            <el-option label="个人" value="personal" />
+            <el-option label="虚拟Key" value="virtual_key" />
             <el-option label="团队" value="team" />
             <el-option label="项目" value="project" />
           </el-select>
@@ -31,7 +31,7 @@
             <el-option
               v-for="item in dimensionList"
               :key="item.id"
-              :label="dimension === 'personal' ? (item.username || item.nickname || item.id) : (dimension === 'team' ? item.teamName : item.projectName)"
+              :label="dimension === 'virtual_key' ? (item.keyName || item.key_name || item.id) : (dimension === 'team' ? item.teamName : item.projectName)"
               :value="item.id"
             />
           </el-select>
@@ -147,13 +147,13 @@ import { getQuotaSummary, getQuotaTransactions } from '@/api/quota'
 import request from '@/utils/request'
 
 // 维度切换
-const dimension = ref('personal')
+const dimension = ref('virtual_key')
 const dimensionSecondValue = ref(1)
 const dimensionList = ref([])
 const dimensionListLoading = ref(false)
 
 const dimensionSecondLabel = computed(() => {
-  if (dimension.value === 'personal') return '用户'
+  if (dimension.value === 'virtual_key') return '虚拟Key'
   if (dimension.value === 'team') return '团队'
   return '项目'
 })
@@ -162,12 +162,12 @@ const fetchDimensionList = async () => {
   dimensionListLoading.value = true
   try {
     let url
-    if (dimension.value === 'personal') {
-      url = '/api/v1/users'
+    if (dimension.value === 'virtual_key') {
+      url = '/virtual-keys'
     } else if (dimension.value === 'team') {
-      url = '/api/v1/teams'
+      url = '/teams'
     } else {
-      url = '/api/v1/projects'
+      url = '/projects'
     }
     const res = await request({ url, method: 'get' })
     if (res.code === 200) {
@@ -269,8 +269,9 @@ const buildParams = () => {
     page: pagination.page,
     size: pagination.size
   }
-  if (dimension.value === 'personal') {
-    params.userId = dimensionSecondValue.value
+  if (dimension.value === 'virtual_key') {
+    params.targetType = 'virtual_key'
+    params.targetId = dimensionSecondValue.value
   } else if (dimension.value === 'team') {
     params.targetType = 'team'
     params.targetId = dimensionSecondValue.value
@@ -283,8 +284,9 @@ const buildParams = () => {
 
 const buildSummaryParams = () => {
   const params = {}
-  if (dimension.value === 'personal') {
-    params.userId = dimensionSecondValue.value
+  if (dimension.value === 'virtual_key') {
+    params.targetType = 'virtual_key'
+    params.targetId = dimensionSecondValue.value
   } else if (dimension.value === 'team') {
     params.targetType = 'team'
     params.targetId = dimensionSecondValue.value

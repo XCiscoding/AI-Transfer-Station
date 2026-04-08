@@ -111,13 +111,14 @@ public class TeamService {
     }
 
     private TeamVO toVO(Team team) {
+        User owner = team.getOwner();
         return TeamVO.builder()
                 .id(team.getId())
                 .teamName(team.getTeamName())
                 .teamCode(team.getTeamCode())
                 .description(team.getDescription())
-                .ownerId(team.getOwner().getId())
-                .ownerName(team.getOwner().getUsername())
+                .ownerId(owner != null ? owner.getId() : null)
+                .ownerName(owner != null ? owner.getUsername() : "未分配")
                 .memberCount(team.getMemberCount())
                 .quotaLimit(team.getQuotaLimit())
                 .quotaUsed(team.getQuotaUsed())

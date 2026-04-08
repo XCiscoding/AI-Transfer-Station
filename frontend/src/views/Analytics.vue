@@ -319,14 +319,13 @@ export default {
     const fetchDimensionList = async () => {
       dimensionListLoading.value = true
       try {
-        let url
         if (dimension.value === 'personal') {
-          url = '/api/v1/users'
-        } else if (dimension.value === 'team') {
-          url = '/api/v1/teams'
-        } else {
-          url = '/api/v1/projects'
+          dimensionList.value = []
+          dimensionSecondValue.value = null
+          return
         }
+
+        const url = dimension.value === 'team' ? '/api/v1/teams' : '/api/v1/projects'
         const res = await request({ url, method: 'get' })
         if (res.code === 200) {
           const raw = res.data?.records || res.data?.list || res.data || []

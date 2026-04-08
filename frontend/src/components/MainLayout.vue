@@ -114,7 +114,7 @@
           <el-dropdown>
             <div class="user-info">
               <el-avatar :size="36" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
-              <span class="username">管理员</span>
+              <span class="username">{{ username }}</span>
               <el-icon><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
@@ -147,6 +147,7 @@ const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const isCollapse = ref(false)
+const username = ref(localStorage.getItem('username') || '管理员')
 
 const currentPageTitle = computed(() => {
   return route.meta.title || '当前页面'
@@ -167,7 +168,7 @@ function handleLogout() {
     }
   ).then(() => {
     localStorage.removeItem('token')
-    localStorage.removeItem('loginTime')
+    localStorage.removeItem('username')
     ElMessage.success('已退出登录')
     router.push('/login')
   }).catch(() => {})

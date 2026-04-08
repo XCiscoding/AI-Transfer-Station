@@ -366,12 +366,13 @@ public class VirtualKeyService {
      * @return 虚拟Key VO
      */
     private VirtualKeyVO convertToVO(VirtualKey virtualKey) {
+        User user = virtualKey.getUser();
         return VirtualKeyVO.builder()
                 .id(virtualKey.getId())
                 .keyName(virtualKey.getKeyName())
                 .keyValue(virtualKey.getKeyValue())
-                .userId(virtualKey.getUser().getId())
-                .userName(virtualKey.getUser().getUsername())
+                .userId(user != null ? user.getId() : null)
+                .userName(user != null ? user.getUsername() : "未分配")
                 .teamId(virtualKey.getTeamId())
                 .projectId(virtualKey.getProjectId())
                 .allowedModels(virtualKey.getAllowedModels())

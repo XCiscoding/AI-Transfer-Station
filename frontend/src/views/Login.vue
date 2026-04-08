@@ -137,8 +137,8 @@ export default {
         if (response && response.data && response.data.token) {
           // 存储token到localStorage
           localStorage.setItem('token', response.data.token)
-          // 注意：不再存储loginTime，Token有效期由后端JWT控制（2小时）
-          // 前端不再本地计算过期时间，避免与后端不同步导致403错误
+          localStorage.setItem('username', response.data.username || loginForm.username)
+          localStorage.setItem('roles', JSON.stringify(response.data.roles || []))
 
           // 显示成功提示
           ElMessage.success('登录成功')

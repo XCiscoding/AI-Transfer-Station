@@ -46,14 +46,7 @@ request.interceptors.response.use(
           window.location.href = '/login'
           break
         case 403:
-          // 403可能由Token过期或权限不足引起
-          // 尝试清除本地token并引导用户重新登录
-          ElMessage.error('登录已过期或权限不足，请重新登录')
-          localStorage.removeItem('token')
-          localStorage.removeItem('loginTime')
-          setTimeout(() => {
-            window.location.href = '/login'
-          }, 1500)
+          ElMessage.error('权限不足')
           break
         case 404:
           ElMessage.error('请求的资源不存在')

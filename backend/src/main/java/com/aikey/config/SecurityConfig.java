@@ -81,6 +81,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 // 放行认证相关接口
                 .requestMatchers("/api/v1/auth/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/users").authenticated()
 
                 // 放行Swagger UI文档接口
                 .requestMatchers("/swagger-ui/**").permitAll()
@@ -88,9 +89,6 @@ public class SecurityConfig {
 
                 // 放行Actuator健康检查端点
                 .requestMatchers("/actuator/**").permitAll()
-
-                // 临时放行调试端点（修复完成后需删除）
-                .requestMatchers("/debug/**").permitAll()
 
                 // 其他所有请求都需要认证
                 .anyRequest().authenticated()

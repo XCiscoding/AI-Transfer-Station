@@ -353,8 +353,15 @@ const modelGroupOptions = ref([])
 async function fetchModelGroups() {
   try {
     const res = await getModelGroupAll()
-    if (res.code === 200 && res.data) modelGroupOptions.value = res.data
-  } catch (e) { console.warn('获取模型分组失败:', e) }
+    if (res.code === 200 && res.data) {
+      modelGroupOptions.value = res.data
+    } else {
+      modelGroupOptions.value = []
+    }
+  } catch (e) {
+    modelGroupOptions.value = []
+    console.warn('获取模型分组失败:', e)
+  }
 }
 
 // 发放Key

@@ -90,14 +90,25 @@ const router = createRouter({
   routes
 })
 
+function getStoredRoles() {
+  try {
+    return JSON.parse(localStorage.getItem('roles') || '[]')
+  } catch {
+    return []
+  }
+}
+
 // 路由守卫：未登录跳转到登录页
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
+  const roles = getStoredRoles()
+
   if (to.meta.requiresAuth && !token) {
     next('/login')
   } else if (to.path === '/login' && token) {
     next('/')
   } else {
+    void roles
     next()
   }
 })

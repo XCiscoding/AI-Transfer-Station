@@ -121,7 +121,7 @@ public class GlobalExceptionHandler {
 
         // TODO: 修复完成后删除详细信息，只返回"系统内部错误"
         return new ResponseEntity<>(
-            Result.error(500, "系统内部错误 - " + e.getClass().getSimpleName() + ": " + message),
+            Result.error(500, "系统内部错误"),
             HttpStatus.INTERNAL_SERVER_ERROR
         );
     }
