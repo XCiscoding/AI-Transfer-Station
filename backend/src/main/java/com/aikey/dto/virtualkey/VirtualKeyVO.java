@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 虚拟Key展示VO
@@ -55,6 +56,11 @@ public class VirtualKeyVO {
      * 允许的模型列表（JSON数组格式）
      */
     private String allowedModels;
+
+    /**
+     * 允许的模型分组ID列表
+     */
+    private List<Long> allowedGroupIds;
 
     /**
      * 额度类型（token, count, amount）

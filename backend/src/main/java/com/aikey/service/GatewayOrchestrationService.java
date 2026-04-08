@@ -199,12 +199,15 @@ public class GatewayOrchestrationService {
             BigDecimal weightedAmount = quotaService.calculateWeightedAmount(
                     rawTokens, modelWeight, teamWeight, projectWeight);
 
-            // 三层同步扣减
+            // 三层同步扣减（含流水记录）
             quotaService.deductQuotaWithFunnel(
                     virtualKey.getId(),
+                    virtualKey.getUser().getId(),
                     virtualKey.getTeamId(),
                     virtualKey.getProjectId(),
-                    weightedAmount);
+                    weightedAmount,
+                    null,  // callLogId 在日志保存后可异步回填，MVP暂传null
+                    virtualKey.getQuotaType());
         }
 
         // 更新lastUsedTime

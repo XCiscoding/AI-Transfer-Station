@@ -24,7 +24,7 @@ const routes = [
       {
         path: 'models',
         name: 'Models',
-        component: () => import('@/views/ModelMarket.vue'),
+        component: () => import('@/views/Placeholder.vue'),
         meta: { title: '模型广场', requiresAuth: true }
       },
       {
@@ -66,8 +66,14 @@ const routes = [
       {
         path: 'logs',
         name: 'Logs',
-        component: () => import('@/views/Placeholder.vue'),
+        component: () => import('@/views/RequestLog.vue'),
         meta: { title: '请求日志', requiresAuth: true }
+      },
+      {
+        path: 'quota-flow',
+        name: 'QuotaFlow',
+        component: () => import('@/views/QuotaFlow.vue'),
+        meta: { title: '额度流水', requiresAuth: true }
       },
       {
         path: 'profile',

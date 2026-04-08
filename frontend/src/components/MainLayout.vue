@@ -21,16 +21,6 @@
           <template #title>控制台首页</template>
         </el-menu-item>
 
-        <el-menu-item index="/models">
-          <el-icon><Grid /></el-icon>
-          <template #title>模型广场</template>
-        </el-menu-item>
-
-        <el-menu-item index="/skills">
-          <el-icon><MagicStick /></el-icon>
-          <template #title>Skill超市</template>
-        </el-menu-item>
-
         <el-menu-item index="/tokens">
           <el-icon><Key /></el-icon>
           <template #title>令牌管理</template>
@@ -59,6 +49,11 @@
         <el-menu-item index="/logs">
           <el-icon><Document /></el-icon>
           <template #title>请求日志</template>
+        </el-menu-item>
+
+        <el-menu-item index="/quota-flow">
+          <el-icon><Coin /></el-icon>
+          <template #title>额度流水</template>
         </el-menu-item>
 
         <el-divider />

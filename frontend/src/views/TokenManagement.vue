@@ -261,6 +261,24 @@
           </el-col>
         </el-row>
 
+        <el-form-item label="模型分组">
+          <el-select
+            v-model="virtualFormData.allowedGroupIds"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择允许的模型分组（可多选，不选则不限）"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="group in modelGroupOptions"
+              :key="group.id"
+              :label="group.groupName"
+              :value="group.id"
+            />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="备注">
           <el-input
             v-model="virtualFormData.remark"
@@ -303,8 +321,23 @@ import {
   toggleVirtualKeyStatus,
   deleteVirtualKey
 } from '@/api/virtualkey'
+import { getModelGroupAll } from '@/api/modelgroup'
 
 // ==================== 全局状态 ====================
+
+// 模型分组列表
+const modelGroupOptions = ref([])
+
+async function fetchModelGroups() {
+  try {
+    const res = await getModelGroupAll()
+    if (res.code === 200 && res.data) {
+      modelGroupOptions.value = res.data
+    }
+  } catch (e) {
+    console.warn('获取模型分组失败:', e)
+  }
+}
 
 // 获取当前登录用户ID（从 localStorage 中的 userInfo 或 token 解析）
 function getCurrentUserId() {
@@ -347,6 +380,7 @@ const virtualFormData = reactive({
   rateLimitQpd: 0,
   expireTime: null,
   allowedModels: '',
+  allowedGroupIds: [],
   remark: ''
 })
 
@@ -369,6 +403,7 @@ let virtualSearchTimer = null
 
 onMounted(() => {
   fetchVirtualKeyList()
+  fetchModelGroups()
 })
 
 // ==================== 虚拟Key API方法 ====================
@@ -515,6 +550,7 @@ function handleVirtualEdit(row) {
     rateLimitQpd: row.rateLimitQpd ?? 0,
     expireTime: row.expireTime || null,
     allowedModels: row.allowedModels || '',
+    allowedGroupIds: row.allowedGroupIds || [],
     remark: row.remark || ''
   })
   virtualDialogVisible.value = true
@@ -602,6 +638,7 @@ function resetVirtualFormData() {
     rateLimitQpd: 0,
     expireTime: null,
     allowedModels: '',
+    allowedGroupIds: [],
     remark: ''
   })
   virtualFormRef.value?.resetFields()

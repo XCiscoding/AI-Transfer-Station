@@ -1,5 +1,11 @@
 <template>
   <div class="channel-management">
+    <!-- Tab 切换 -->
+    <el-tabs v-model="activeTab" class="main-tabs" @tab-change="handleTabChange">
+
+      <!-- 渠道管理 Tab -->
+      <el-tab-pane label="渠道管理" name="channels">
+
     <!-- 搜索筛选区域 -->
     <div class="filter-card glass-card">
       <div class="filter-header">
@@ -435,6 +441,186 @@
         </div>
       </template>
     </el-dialog>
+
+      </el-tab-pane>
+      <!-- 模型分组 Tab -->
+      <el-tab-pane label="模型分组" name="groups">
+
+        <!-- 操作栏 -->
+        <div class="filter-card glass-card">
+          <div class="filter-header">
+            <el-form :model="groupSearchForm" inline class="filter-form">
+              <el-form-item label="搜索">
+                <el-input
+                  v-model="groupSearchForm.keyword"
+                  placeholder="输入分组名称"
+                  clearable
+                  @clear="handleGroupSearch"
+                  @input="handleGroupSearch"
+                  class="search-input"
+                >
+                  <template #prefix>
+                    <el-icon><Search /></el-icon>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-form>
+            <el-button type="primary" class="add-btn" @click="handleGroupAdd">
+              <el-icon><Plus /></el-icon>
+              新增分组
+            </el-button>
+          </div>
+        </div>
+
+        <!-- 分组表格 -->
+        <div class="table-card glass-card">
+          <el-table
+            :data="groupTableData"
+            v-loading="groupLoading"
+            stripe
+            border
+            style="width: 100%"
+            class="channel-table"
+          >
+            <el-table-column prop="id" label="ID" width="70" align="center" />
+
+            <el-table-column prop="groupName" label="分组名称" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="channel-name">{{ row.groupName }}</span>
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+
+            <el-table-column label="包含模型数" width="100" align="center">
+              <template #default="{ row }">
+                {{ row.models?.length || 0 }}
+              </template>
+            </el-table-column>
+
+            <el-table-column label="模型列表" min-width="200">
+              <template #default="{ row }">
+                <span v-if="!row.models || row.models.length === 0" style="color: rgba(248,250,252,0.4); font-size: 12px;">—</span>
+                <template v-else>
+                  <el-tag
+                    v-for="m in row.models.slice(0, 3)"
+                    :key="m.id || m.modelCode"
+                    size="small"
+                    type="info"
+                    style="margin: 2px 3px 2px 0;"
+                  >
+                    {{ m.modelCode }}
+                  </el-tag>
+                  <el-tag v-if="row.models.length > 3" size="small" type="info">
+                    +{{ row.models.length - 3 }}
+                  </el-tag>
+                </template>
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="status" label="状态" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
+                  {{ row.status === 1 ? '启用' : '禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="createdAt" label="创建时间" width="160" align="center">
+              <template #default="{ row }">
+                {{ formatTime(row.createdAt) }}
+              </template>
+            </el-table-column>
+
+            <el-table-column label="操作" width="120" align="center">
+              <template #default="{ row }">
+                <div class="action-buttons">
+                  <el-button type="primary" link size="small" @click="handleGroupEdit(row)">
+                    <el-icon><Edit /></el-icon>编辑
+                  </el-button>
+                  <el-button type="danger" link size="small" @click="handleGroupDelete(row)">
+                    <el-icon><Delete /></el-icon>删除
+                  </el-button>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <!-- 分页 -->
+          <div class="pagination-wrapper">
+            <el-pagination
+              v-model:current-page="groupPagination.page"
+              v-model:page-size="groupPagination.size"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="groupPagination.total"
+              layout="total, sizes, prev, pager, next, jumper"
+              background
+              @size-change="handleGroupSizeChange"
+              @current-change="handleGroupPageChange"
+            />
+          </div>
+        </div>
+
+        <!-- 新增/编辑分组弹窗 -->
+        <el-dialog
+          v-model="groupDialogVisible"
+          :title="isGroupEdit ? '编辑分组' : '新增分组'"
+          width="560px"
+          :close-on-click-modal="false"
+          class="channel-dialog"
+          destroy-on-close
+        >
+          <el-form
+            ref="groupFormRef"
+            :model="groupFormData"
+            :rules="groupFormRules"
+            label-width="100px"
+            label-position="right"
+            class="channel-form"
+          >
+            <el-form-item label="分组名称" prop="groupName">
+              <el-input v-model="groupFormData.groupName" placeholder="请输入分组名称" />
+            </el-form-item>
+
+            <el-form-item label="描述">
+              <el-input
+                v-model="groupFormData.description"
+                type="textarea"
+                :rows="3"
+                placeholder="可选，描述该分组的用途"
+              />
+            </el-form-item>
+
+            <el-form-item label="包含模型" prop="modelIds">
+              <el-select
+                v-model="groupFormData.modelIds"
+                multiple
+                placeholder="请选择模型"
+                style="width: 100%"
+                filterable
+              >
+                <el-option
+                  v-for="m in allModels"
+                  :key="m.id"
+                  :label="m.modelName"
+                  :value="m.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-form>
+
+          <template #footer>
+            <div class="dialog-footer">
+              <el-button @click="groupDialogVisible = false">取消</el-button>
+              <el-button type="primary" :loading="groupSubmitLoading" @click="handleGroupSubmit">
+                {{ isGroupEdit ? '更新' : '创建' }}
+              </el-button>
+            </div>
+          </template>
+        </el-dialog>
+
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -462,6 +648,13 @@ import {
   toggleRealKeyStatus,
   deleteRealKey
 } from '@/api/realkey'
+import {
+  getModelGroupList,
+  createModelGroup,
+  updateModelGroup,
+  deleteModelGroup
+} from '@/api/modelgroup'
+import { getModelList } from '@/api/model'
 
 // ==================== 响应式数据 ====================
 
@@ -543,10 +736,31 @@ const formRules = {
 // 防抖定时器
 let searchTimer = null
 
+// ==================== 模型分组状态 ====================
+
+const activeTab = ref('channels')
+const groupTableData = ref([])
+const groupLoading = ref(false)
+const groupPagination = reactive({ page: 1, size: 10, total: 0 })
+const groupSearchForm = reactive({ keyword: '' })
+const groupDialogVisible = ref(false)
+const isGroupEdit = ref(false)
+const currentGroupEditId = ref(null)
+const groupSubmitLoading = ref(false)
+const groupFormRef = ref()
+const groupFormData = reactive({ groupName: '', description: '', modelIds: [] })
+const groupFormRules = {
+  groupName: [{ required: true, message: '请输入分组名称', trigger: 'blur' }],
+  modelIds: [{ required: true, type: 'array', min: 1, message: '请至少选择一个模型', trigger: 'change' }]
+}
+const allModels = ref([])
+let groupLoaded = false
+
 // ==================== 生命周期 ====================
 
 onMounted(() => {
   fetchChannelList()
+  fetchAllModels()
 })
 
 // ==================== API 调用方法 ====================
@@ -1035,6 +1249,140 @@ async function handleRealKeyStatusChange(row, newStatus) {
   } finally {
     row.statusLoading = false
   }
+}
+
+// ==================== Tab 切换 ====================
+
+function handleTabChange(tabName) {
+  if (tabName === 'groups' && !groupLoaded) {
+    fetchGroupList()
+  }
+}
+
+// ==================== 模型分组 API ====================
+
+async function fetchGroupList() {
+  groupLoading.value = true
+  try {
+    const res = await getModelGroupList({
+      page: groupPagination.page,
+      size: groupPagination.size,
+      keyword: groupSearchForm.keyword || undefined
+    })
+    if (res.code === 200 && res.data) {
+      groupTableData.value = res.data.records || []
+      groupPagination.total = res.data.total || 0
+      groupLoaded = true
+    } else {
+      ElMessage.error(res.message || '获取分组列表失败')
+    }
+  } catch (error) {
+    console.error('获取分组列表失败:', error)
+    ElMessage.error(error.message || '网络错误，请稍后重试')
+  } finally {
+    groupLoading.value = false
+  }
+}
+
+async function fetchAllModels() {
+  try {
+    const res = await getModelList({ page: 1, size: 1000 })
+    if (res.code === 200 && res.data) {
+      allModels.value = res.data.records || []
+    }
+  } catch (error) {
+    console.error('获取模型列表失败:', error)
+  }
+}
+
+function handleGroupSearch() {
+  groupPagination.page = 1
+  fetchGroupList()
+}
+
+function handleGroupSizeChange(val) {
+  groupPagination.size = val
+  groupPagination.page = 1
+  fetchGroupList()
+}
+
+function handleGroupPageChange(val) {
+  groupPagination.page = val
+  fetchGroupList()
+}
+
+function handleGroupAdd() {
+  isGroupEdit.value = false
+  currentGroupEditId.value = null
+  Object.assign(groupFormData, { groupName: '', description: '', modelIds: [] })
+  groupDialogVisible.value = true
+}
+
+function handleGroupEdit(row) {
+  isGroupEdit.value = true
+  currentGroupEditId.value = row.id
+  Object.assign(groupFormData, {
+    groupName: row.groupName,
+    description: row.description || '',
+    modelIds: (row.models || []).map(m => m.id).filter(Boolean)
+  })
+  groupDialogVisible.value = true
+}
+
+function handleGroupDelete(row) {
+  ElMessageBox.confirm(
+    `确定要删除分组「${row.groupName}」吗？删除后不可恢复。`,
+    '删除确认',
+    {
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+      confirmButtonClass: 'el-button--danger'
+    }
+  ).then(async () => {
+    try {
+      const res = await deleteModelGroup(row.id)
+      if (res.code === 200) {
+        ElMessage.success('删除成功')
+        if (groupTableData.value.length === 1 && groupPagination.page > 1) {
+          groupPagination.page--
+        }
+        fetchGroupList()
+      } else {
+        ElMessage.error(res.message || '删除失败')
+      }
+    } catch (error) {
+      ElMessage.error(error.message || '删除失败')
+    }
+  }).catch(() => {})
+}
+
+function handleGroupSubmit() {
+  groupFormRef.value?.validate(async (valid) => {
+    if (!valid) return
+    groupSubmitLoading.value = true
+    try {
+      const data = { ...groupFormData }
+      let res
+      if (isGroupEdit.value) {
+        res = await updateModelGroup(currentGroupEditId.value, data)
+      } else {
+        res = await createModelGroup(data)
+      }
+      if (res.code === 200) {
+        ElMessage.success(isGroupEdit.value ? '更新成功' : '创建成功')
+        groupDialogVisible.value = false
+        fetchGroupList()
+      } else {
+        ElMessage.error(res.message || '操作失败')
+      }
+    } catch (error) {
+      console.error('分组操作失败:', error)
+      ElMessage.error(error.message || '操作失败')
+    } finally {
+      groupSubmitLoading.value = false
+    }
+  })
 }
 </script>
 
@@ -1555,5 +1903,35 @@ async function handleRealKeyStatusChange(row, newStatus) {
     width: 95% !important;
     margin: 0 auto;
   }
+}
+
+/* Tab 切换样式 */
+.main-tabs :deep(.el-tabs__header) {
+  margin-bottom: 16px;
+}
+
+.main-tabs :deep(.el-tabs__nav-wrap::after) {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.main-tabs :deep(.el-tabs__item) {
+  color: rgba(248, 250, 252, 0.55);
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.main-tabs :deep(.el-tabs__item:hover) {
+  color: rgba(248, 250, 252, 0.85);
+}
+
+.main-tabs :deep(.el-tabs__item.is-active) {
+  color: #3B82F6;
+  font-weight: 600;
+}
+
+.main-tabs :deep(.el-tabs__active-bar) {
+  background-color: #3B82F6;
+  border-radius: 2px;
 }
 </style>

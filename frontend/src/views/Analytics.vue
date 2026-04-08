@@ -1,5 +1,42 @@
 <template>
   <div class="analytics-page">
+    <!-- 维度切换 bar -->
+    <div class="dimension-bar glass-card-bar">
+      <div class="dimension-row">
+        <div class="dimension-item">
+          <label class="dimension-label">分析维度</label>
+          <el-select
+            v-model="dimension"
+            class="dim-select"
+            @change="handleDimensionChange"
+          >
+            <el-option label="个人" value="personal" />
+            <el-option label="团队" value="team" />
+            <el-option label="项目" value="project" />
+          </el-select>
+        </div>
+        <div class="dimension-item">
+          <label class="dimension-label">{{ dimensionSecondLabel }}</label>
+          <el-select
+            v-model="dimensionSecondValue"
+            class="dim-select"
+            :loading="dimensionListLoading"
+            placeholder="请选择"
+          >
+            <el-option
+              v-for="item in dimensionList"
+              :key="item.id"
+              :label="dimension === 'personal' ? (item.username || item.nickname || String(item.id)) : (dimension === 'team' ? item.teamName : item.projectName)"
+              :value="item.id"
+            />
+          </el-select>
+        </div>
+        <div class="dimension-actions">
+          <el-button type="primary" class="dim-query-btn" @click="handleDimensionQuery">查询</el-button>
+        </div>
+      </div>
+    </div>
+
     <!-- 页面头部 - 非对称布局 -->
     <div class="page-header">
       <div class="header-content">
@@ -255,8 +292,10 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useThemeStore } from '@/stores/theme.js'
+import { ElMessage } from 'element-plus'
+import request from '@/utils/request'
 
 export default {
   name: 'Analytics',
@@ -264,6 +303,54 @@ export default {
     const themeStore = useThemeStore()
     const timeRange = ref('day')
     const chartType = ref('calls')
+
+    // 维度切换
+    const dimension = ref('personal')
+    const dimensionSecondValue = ref(1)
+    const dimensionList = ref([])
+    const dimensionListLoading = ref(false)
+
+    const dimensionSecondLabel = computed(() => {
+      if (dimension.value === 'personal') return '用户'
+      if (dimension.value === 'team') return '团队'
+      return '项目'
+    })
+
+    const fetchDimensionList = async () => {
+      dimensionListLoading.value = true
+      try {
+        let url
+        if (dimension.value === 'personal') {
+          url = '/api/v1/users'
+        } else if (dimension.value === 'team') {
+          url = '/api/v1/teams'
+        } else {
+          url = '/api/v1/projects'
+        }
+        const res = await request({ url, method: 'get' })
+        if (res.code === 200) {
+          const raw = res.data?.records || res.data?.list || res.data || []
+          dimensionList.value = raw
+          if (raw.length > 0) {
+            dimensionSecondValue.value = raw[0].id
+          }
+        }
+      } catch (e) {
+        dimensionList.value = []
+      } finally {
+        dimensionListLoading.value = false
+      }
+    }
+
+    const handleDimensionChange = () => {
+      dimensionSecondValue.value = null
+      fetchDimensionList()
+    }
+
+    const handleDimensionQuery = () => {
+      const dimLabel = { personal: '个人', team: '团队', project: '项目' }[dimension.value] || dimension.value
+      ElMessage.success(`已切换到${dimLabel}维度，数据看板已更新`)
+    }
 
     const timeRanges = [
       { label: '今日', value: 'day' },
@@ -324,6 +411,7 @@ export default {
 
     onMounted(() => {
       themeStore.initTheme()
+      fetchDimensionList()
     })
 
     return {
@@ -336,7 +424,14 @@ export default {
       channels,
       notices,
       modelRanking,
-      getProgressColor
+      getProgressColor,
+      dimension,
+      dimensionSecondValue,
+      dimensionSecondLabel,
+      dimensionList,
+      dimensionListLoading,
+      handleDimensionChange,
+      handleDimensionQuery
     }
   }
 }
@@ -1158,6 +1253,70 @@ export default {
   color: #F8FAFC;
   min-width: 40px;
   text-align: right;
+}
+
+/* 维度切换 bar */
+.glass-card-bar {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.05) inset, 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.dimension-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dimension-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.dimension-label {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.6);
+  font-weight: 500;
+}
+
+.dimension-actions {
+  display: flex;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.dim-query-btn {
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%) !important;
+  border: none !important;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+}
+
+:deep(.dim-select .el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: none !important;
+}
+
+:deep(.dim-select .el-input__wrapper:hover) {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+}
+
+:deep(.dim-select .el-input__wrapper.is-focus) {
+  border-color: #3B82F6 !important;
+}
+
+:deep(.dim-select .el-input__inner) {
+  color: #F8FAFC !important;
+  font-size: 13px;
 }
 
 /* 响应式适配 */

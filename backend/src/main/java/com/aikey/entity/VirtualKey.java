@@ -47,6 +47,9 @@ public class VirtualKey {
     @Column(name = "allowed_models", columnDefinition = "TEXT")
     private String allowedModels;  // JSON数组，空表示不限制
 
+    @Column(name = "allowed_group_ids", columnDefinition = "TEXT")
+    private String allowedGroupIds;  // 模型分组ID的JSON数组
+
     @Column(name = "quota_type", length = 20, nullable = false)
     private String quotaType;  // token, count, amount
 

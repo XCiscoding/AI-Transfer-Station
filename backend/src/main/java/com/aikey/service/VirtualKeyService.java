@@ -9,6 +9,8 @@ import com.aikey.entity.VirtualKey;
 import com.aikey.exception.BusinessException;
 import com.aikey.repository.UserRepository;
 import com.aikey.repository.VirtualKeyRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,6 +24,8 @@ import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -38,6 +42,8 @@ public class VirtualKeyService {
     private final VirtualKeyRepository virtualKeyRepository;
 
     private final UserRepository userRepository;
+
+    private final ObjectMapper objectMapper;
 
     /**
      * 生成虚拟Key
@@ -67,13 +73,14 @@ public class VirtualKeyService {
                 .teamId(request.getTeamId())
                 .projectId(request.getProjectId())
                 .allowedModels(request.getAllowedModels())
+                .allowedGroupIds(toJson(request.getAllowedGroupIds()))
                 .quotaType(request.getQuotaType())
                 .quotaLimit(request.getQuotaLimit())
                 .quotaUsed(BigDecimal.ZERO)
                 .quotaRemaining(request.getQuotaLimit())
                 .rateLimitQpm(request.getRateLimitQpm())
                 .rateLimitQpd(request.getRateLimitQpd())
-                .status(1)                          // 默认启用
+                .status(1)
                 .expireTime(request.getExpireTime())
                 .remark(request.getRemark())
                 .createdAt(now)
@@ -200,6 +207,9 @@ public class VirtualKeyService {
             if (request.getAllowedModels() != null) {
                 virtualKey.setAllowedModels(request.getAllowedModels());
             }
+            if (request.getAllowedGroupIds() != null) {
+                virtualKey.setAllowedGroupIds(toJson(request.getAllowedGroupIds()));
+            }
             if (StringUtils.hasText(request.getQuotaType())) {
                 virtualKey.setQuotaType(request.getQuotaType());
             }
@@ -315,8 +325,7 @@ public class VirtualKeyService {
     }
 
     /**
-     * 生成唯一的Key值
-     *
+     * 生成唯一的Key值     *
      * <p>格式：sk- + UUID(去除横线).substring(0, 32)</p>
      * <p>循环生成直到找到不重复的keyValue</p>
      *
@@ -360,12 +369,13 @@ public class VirtualKeyService {
         return VirtualKeyVO.builder()
                 .id(virtualKey.getId())
                 .keyName(virtualKey.getKeyName())
-                .keyValue(virtualKey.getKeyValue())  // 完整显示（虚拟Key本身不是真实密钥）
+                .keyValue(virtualKey.getKeyValue())
                 .userId(virtualKey.getUser().getId())
                 .userName(virtualKey.getUser().getUsername())
                 .teamId(virtualKey.getTeamId())
                 .projectId(virtualKey.getProjectId())
                 .allowedModels(virtualKey.getAllowedModels())
+                .allowedGroupIds(fromJson(virtualKey.getAllowedGroupIds()))
                 .quotaType(virtualKey.getQuotaType())
                 .quotaLimit(virtualKey.getQuotaLimit())
                 .quotaUsed(virtualKey.getQuotaUsed())
@@ -379,5 +389,23 @@ public class VirtualKeyService {
                 .createdAt(virtualKey.getCreatedAt())
                 .updatedAt(virtualKey.getUpdatedAt())
                 .build();
+    }
+
+    private String toJson(List<Long> list) {
+        if (list == null || list.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(list);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private List<Long> fromJson(String json) {
+        if (!StringUtils.hasText(json)) return Collections.emptyList();
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Long>>() {});
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
     }
 }

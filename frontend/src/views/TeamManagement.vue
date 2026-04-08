@@ -90,9 +90,12 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="160" fixed="right" align="center">
+        <el-table-column label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
+              <el-button type="success" link size="small" @click="handleIssueKey(row)">
+                <el-icon><Key /></el-icon>发放Key
+              </el-button>
               <el-button type="primary" link size="small" @click="handleEdit(row)">
                 <el-icon><Edit /></el-icon>编辑
               </el-button>
@@ -198,14 +201,107 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 为组员发放Key弹窗 -->
+    <el-dialog
+      v-model="issueKeyDialogVisible"
+      :title="`为「${issueKeyTeam?.teamName}」组员发放 Key`"
+      width="600px"
+      :close-on-click-modal="false"
+      class="team-dialog"
+      destroy-on-close
+    >
+      <el-form
+        ref="issueKeyFormRef"
+        :model="issueKeyFormData"
+        :rules="issueKeyFormRules"
+        label-width="110px"
+        label-position="right"
+        class="team-form"
+      >
+        <el-form-item label="Key名称" prop="keyName">
+          <el-input v-model="issueKeyFormData.keyName" placeholder="如：张三的开发Key" />
+        </el-form-item>
+
+        <el-form-item label="分配给用户" prop="userId">
+          <el-input
+            v-model.number="issueKeyFormData.userId"
+            type="number"
+            placeholder="请输入用户ID"
+          />
+          <div style="font-size:12px;color:rgba(248,250,252,0.5);margin-top:4px">
+            在用户管理中查看用户ID（后续会改为下拉选择）
+          </div>
+        </el-form-item>
+
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="额度类型" prop="quotaType">
+              <el-select v-model="issueKeyFormData.quotaType" style="width:100%">
+                <el-option label="Token数量" value="token" />
+                <el-option label="调用次数" value="count" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="额度上限" prop="quotaLimit">
+              <el-input-number
+                v-model="issueKeyFormData.quotaLimit"
+                :min="1"
+                :precision="0"
+                style="width:100%"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+
+        <el-form-item label="模型分组">
+          <el-select
+            v-model="issueKeyFormData.allowedGroupIds"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="选择允许的模型分组（不选则不限）"
+            style="width:100%"
+          >
+            <el-option
+              v-for="group in modelGroupOptions"
+              :key="group.id"
+              :label="group.groupName"
+              :value="group.id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="备注">
+          <el-input
+            v-model="issueKeyFormData.remark"
+            type="textarea"
+            :rows="2"
+            placeholder="可选，如：用于项目A的开发调试"
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="issueKeyDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="issueKeyLoading" @click="handleIssueKeySubmit">
+            生成并下发
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Search, Edit, Delete } from '@element-plus/icons-vue'
+import { Plus, Search, Edit, Delete, Key } from '@element-plus/icons-vue'
 import { getTeamList, createTeam, updateTeam, deleteTeam } from '@/api/team'
+import { createVirtualKey } from '@/api/virtualkey'
+import { getModelGroupAll } from '@/api/modelgroup'
 
 function getCurrentUserId() {
   try {
@@ -249,7 +345,80 @@ let searchTimer = null
 
 onMounted(() => {
   fetchList()
+  fetchModelGroups()
 })
+
+// 模型分组
+const modelGroupOptions = ref([])
+async function fetchModelGroups() {
+  try {
+    const res = await getModelGroupAll()
+    if (res.code === 200 && res.data) modelGroupOptions.value = res.data
+  } catch (e) { console.warn('获取模型分组失败:', e) }
+}
+
+// 发放Key
+const issueKeyDialogVisible = ref(false)
+const issueKeyTeam = ref(null)
+const issueKeyLoading = ref(false)
+const issueKeyFormRef = ref()
+const issueKeyFormData = reactive({
+  keyName: '',
+  userId: null,
+  quotaType: 'token',
+  quotaLimit: 100000,
+  allowedGroupIds: [],
+  remark: ''
+})
+const issueKeyFormRules = {
+  keyName: [{ required: true, message: '请输入Key名称', trigger: 'blur' }],
+  userId: [{ required: true, message: '请输入用户ID', trigger: 'blur' }],
+  quotaType: [{ required: true, message: '请选择额度类型', trigger: 'change' }],
+  quotaLimit: [{ required: true, message: '请输入额度上限', trigger: 'blur' }]
+}
+
+function handleIssueKey(row) {
+  issueKeyTeam.value = row
+  Object.assign(issueKeyFormData, {
+    keyName: '',
+    userId: null,
+    quotaType: 'token',
+    quotaLimit: 100000,
+    allowedGroupIds: [],
+    remark: ''
+  })
+  issueKeyDialogVisible.value = true
+}
+
+function handleIssueKeySubmit() {
+  issueKeyFormRef.value?.validate(async (valid) => {
+    if (!valid) return
+    issueKeyLoading.value = true
+    try {
+      const res = await createVirtualKey({
+        keyName: issueKeyFormData.keyName,
+        userId: issueKeyFormData.userId,
+        teamId: issueKeyTeam.value.id,
+        quotaType: issueKeyFormData.quotaType,
+        quotaLimit: issueKeyFormData.quotaLimit,
+        allowedGroupIds: issueKeyFormData.allowedGroupIds,
+        remark: issueKeyFormData.remark,
+        rateLimitQpm: 60,
+        rateLimitQpd: 0
+      })
+      if (res.code === 200) {
+        ElMessage.success(`Key已生成：${res.data?.keyValue}`)
+        issueKeyDialogVisible.value = false
+      } else {
+        ElMessage.error(res.message || '生成失败')
+      }
+    } catch (e) {
+      ElMessage.error(e.message || '生成失败')
+    } finally {
+      issueKeyLoading.value = false
+    }
+  })
+}
 
 async function fetchList() {
   loading.value = true

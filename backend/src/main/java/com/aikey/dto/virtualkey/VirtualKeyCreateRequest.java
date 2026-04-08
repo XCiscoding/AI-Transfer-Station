@@ -6,6 +6,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 虚拟Key创建请求DTO
@@ -36,6 +37,11 @@ public class VirtualKeyCreateRequest {
      * <p>示例: ["gpt-4", "gpt-3.5-turbo"]</p>
      */
     private String allowedModels;
+
+    /**
+     * 允许的模型分组ID列表
+     */
+    private List<Long> allowedGroupIds;
 
     @NotBlank(message = "额度类型不能为空")
     private String quotaType;  // token, count, amount
