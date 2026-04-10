@@ -11,6 +11,7 @@ jobs:
       RELEASE_DIR: /root/AI-center/releases
       APP_DIR: /root/AI-center/AI-Transfer-Station
       RELEASE_NAME: release-${{ github.sha }}
+      RELEASE_UPLOAD_DIR: .release-upload
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,6 +34,15 @@ jobs:
             --exclude='*.log' \
             -czf "$ARCHIVE_PATH" .
 
+      - name: Stage release archive for upload
+        env:
+          ARCHIVE_PATH: ${{ runner.temp }}/${{ env.RELEASE_NAME }}.tar.gz
+        run: |
+          rm -rf "${{ env.RELEASE_UPLOAD_DIR }}"
+          mkdir -p "${{ env.RELEASE_UPLOAD_DIR }}"
+          cp "$ARCHIVE_PATH" "${{ env.RELEASE_UPLOAD_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
+          ls -l "${{ env.RELEASE_UPLOAD_DIR }}"
+
       - name: Upload release archive
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -40,9 +50,8 @@ jobs:
           username: root
           port: 22
           key: ${{ secrets.DEPLOY_KEY }}
-          source: "${{ runner.temp }}/${{ env.RELEASE_NAME }}.tar.gz"
+          source: "${{ env.RELEASE_UPLOAD_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
           target: ${{ env.RELEASE_DIR }}/
-          strip_components: 3
 
       - name: Deploy release on server
         uses: appleboy/ssh-action@v1.0.0
@@ -55,25 +64,48 @@ jobs:
             set -e
             mkdir -p "${{ env.RELEASE_DIR }}" "${{ env.APP_DIR }}"
             cd "${{ env.RELEASE_DIR }}"
+
+            echo "=== Deploy context ==="
+            echo "RELEASE_DIR=${{ env.RELEASE_DIR }}"
+            echo "APP_DIR=${{ env.APP_DIR }}"
+            echo "RELEASE_NAME=${{ env.RELEASE_NAME }}"
+            pwd
+
+            echo "=== release dir snapshot before extract ==="
+            ls -la
+
+            echo "=== candidate archives under release dir ==="
+            find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name 'release-*.tar.gz' -printf '%TY-%Tm-%Td %TH:%TM:%TS %p %k KB\n' | sort || true
+
             rm -rf "${{ env.RELEASE_NAME }}"
             mkdir -p "${{ env.RELEASE_NAME }}"
 
             if [ -f "${{ env.RELEASE_NAME }}.tar.gz" ]; then
-              echo "Using release archive: ${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
-              tar -xzf "${{ env.RELEASE_NAME }}.tar.gz" -C "${{ env.RELEASE_NAME }}"
+              ARCHIVE_PATH="${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
+              echo "Using direct archive match"
             else
               ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1 | tr -d '\r' || true)
 
               if [ -z "$ARCHIVE_PATH" ]; then
                 echo "Release archive not found under ${{ env.RELEASE_DIR }}"
-                find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f
+                echo "=== all files under release dir ==="
+                find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f | sort || true
                 exit 1
               fi
 
-              printf 'Using release archive: [%s]\n' "$ARCHIVE_PATH"
-              ls -l "$ARCHIVE_PATH"
-              tar -xzf "$ARCHIVE_PATH" -C "${{ env.RELEASE_NAME }}"
+              echo "Using nested archive match"
             fi
+
+            printf 'Using release archive: [%s]\n' "$ARCHIVE_PATH"
+            ls -l "$ARCHIVE_PATH"
+            echo "=== archive file metadata ==="
+            stat "$ARCHIVE_PATH"
+            echo "=== archive top-level entries ==="
+            tar -tzf "$ARCHIVE_PATH" | head -n 40
+            tar -xzf "$ARCHIVE_PATH" -C "${{ env.RELEASE_NAME }}"
+
+            echo "=== extracted release snapshot ==="
+            find "${{ env.RELEASE_NAME }}" -maxdepth 2 -mindepth 1 | sort | head -n 80
 
             if [ -f "${{ env.APP_DIR }}/deploy/.env" ]; then
               cp "${{ env.APP_DIR }}/deploy/.env" "${{ env.RELEASE_NAME }}/deploy/.env"
