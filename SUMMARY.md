@@ -296,19 +296,192 @@
 - 把这次关于 `admin` 身份漂移和双视角实现规则的结论固化到总结文档
 - 后续若恢复开发，优先处理 `admin` 从 bootstrap 超管链路中移除的问题，再做真实账号联调验证
 
-### 3.8 Risks still open
+### 3.9 Deployment and push flow updates
 
-当前仍待收口的不是“能不能登录”，而是下面这些一致性风险：
+本次对话围绕部署链路又实际做了多轮排查和修正，但**到当前为止，GitHub Actions 自动部署仍未成功稳定恢复**。这里必须把真实过程和失败原因写清楚，避免后续再基于错误前提重复修。
 
-1. `admin` 之外的引导账号初始化/修复路径还不够统一
-2. 已有数据库环境和 `db/data.sql` 的账号定义可能长期漂移
-3. 后续如果继续新增企业管理员类账号，不能再默认只靠种子 SQL 生效
-4. 文档、代码、数据库三者必须一起验证，否则很容易再次出现“代码改了但运行态没变”的假闭环
-5. 团队管理、Token、项目、Analytics 这几条前端主链路本轮已完成主要收口，但仍缺少真实账号联调来确认所有页面在 401/403、空团队、空项目、手改上下文场景下都稳定
-6. 端口配置一旦漂移，会伪装成“某些账号 / 某些页面有问题”：页面本身能打开，但登录、列表、详情、统计等接口可能因前后端不在同一端口约定上而失败
-7. 团队页当前最主要未闭环点已经收口为：**owner 账号还没有真正进入团队管理员视角**，后续排查应优先围绕这个问题，而不是回到已修复的系统性 500
+#### What was actually attempted in this round
 
----
+这轮已经实际做过的事情：
+
+1. **先确认 push 语义**
+   - 本地 `Everything up-to-date` 不等于 push 失败
+   - 只有本地有新 commit 且成功推到 `origin/main`，GitHub Actions 才会拿到新 workflow / 新代码
+
+2. **先分析 403 与访问入口问题**
+   - 实测：`http://111.230.113.110:8083` 返回 `403 Forbidden`
+   - 同时发现仓库里原有部署设计和线上入口并不一致：
+     - 根目录 `docker-compose.yml` 只起后端栈
+     - 真正包含前端的是 `deploy/docker-compose.all-in-one.yml`
+     - 用户最终明确要求正式前端入口使用 `http://111.230.113.110:8083`
+
+3. **第一次修 workflow：从根 compose 切到 all-in-one compose**
+   - 把 `.github/workflows/deploy.yml` 从：
+     - `docker compose down`
+     - `docker compose up -d --build`
+   - 改成：
+     - `docker compose -f deploy/docker-compose.all-in-one.yml down`
+     - `docker compose -f deploy/docker-compose.all-in-one.yml up -d --build`
+   - 同时把 `deploy/docker-compose.all-in-one.yml` 的 frontend 端口改成 `8083:80`
+
+4. **查看真实 GitHub Actions 失败日志后，再次修部署模型**
+   从真实日志里确认了两个关键报错：
+   - `fatal: unable to access 'https://github.com/XCiscoding/AI-Transfer-Station.git/': Empty reply from server`
+   - `Bind for 0.0.0.0:3306 failed: port is already allocated`
+
+5. **第二次修 compose：改成复用服务器现有 MySQL / Redis**
+   - 把 `deploy/docker-compose.all-in-one.yml` 从“自带 mysql / redis 容器”改成：
+     - backend 连接 `host.docker.internal:3306`
+     - backend 连接 `host.docker.internal:6379`
+   - 目标是绕开服务器上已有 MySQL / Redis 的端口冲突
+
+6. **第三次修 workflow：不再让服务器自己 `git pull`**
+   - 重新设计 `.github/workflows/deploy.yml`
+   - 改成：
+     - GitHub runner 本地打包源码
+     - 用 `appleboy/scp-action` 上传 tar.gz 到服务器
+     - 再用 `appleboy/ssh-action` 解压并部署
+   - 目标是绕开服务器访问 GitHub HTTPS 不稳定的问题
+
+7. **同步更新了部署文档**
+   - `DEPLOYMENT_GUIDE.md`
+   - `deploy/DEPLOY_ALL_IN_ONE.md`
+   - `deploy/FINALSHELL_DEPLOY_GUIDE.md`
+   - 文档都统一成：当前服务器正式入口是 `http://服务器IP:8083`，正式部署只用 `deploy/docker-compose.all-in-one.yml`
+
+8. **已创建新的本地提交**
+   - 新提交：`2f3ec18 fix：启动！`
+   - 但截至当前对话，用户反馈 GitHub Actions 页面仍显示部署失败，说明“新方案已经写进仓库”不等于“线上已被验证恢复”
+
+#### Why this still did not get fixed successfully
+
+到现在还没修成功，真实原因不是单点故障，而是**连续几次判断都只解决了局部问题，没有真正拿到完整线上事实再闭环**。
+
+##### Root cause 1: 一开始把失败原因收窄得过早
+最开始确认过一次：
+- 服务器脏工作区导致 `git pull` 失败
+
+这个结论在当时是对的，但它**不是唯一根因**。
+后面真实日志又暴露出：
+- 服务器访问 GitHub HTTPS 也不稳定
+- 服务器还存在 3306 端口占用
+
+也就是说：
+- **第一次修复只解决了“脏工作区”这一层，没有解决“拉 GitHub 不稳定”和“部署模型冲突”两层**
+
+##### Root cause 2: 部署模型本身长期不统一
+当前仓库里一直并存至少三套思路：
+- 根目录 `docker-compose.yml`
+- `deploy/docker-compose.prod.yml`
+- `deploy/docker-compose.all-in-one.yml`
+
+它们分别代表不同部署模型，但线上到底跑的是哪一套、历史上混跑过哪一套，没有先彻底核实清楚。
+后果是：
+- 一次修的是 workflow
+- 一次修的是 compose 端口
+- 一次修的是数据库来源
+- 但**没有先把“服务器当前真实运行基线”作为唯一事实源固定下来**
+
+##### Root cause 3: 线上事实验证不完整
+这轮虽然看了 GitHub Actions 日志，但仍缺少对服务器当前状态的一次完整核查闭环，比如：
+- 当前服务器到底有哪些容器在跑
+- 哪些 compose project 还活着
+- 3306/6379/8083 分别被谁占用
+- `/root/AI-center/releases` 和 `/root/AI-center/AI-Transfer-Station` 当前实际是什么状态
+- 新 workflow 失败到底卡在：
+  - SCP 上传
+  - SSH 解压
+  - compose up
+  - 还是健康检查
+
+**没有这组完整事实，就只能继续“改配置再赌一次”。**
+这正是这几次没有真正收口的核心原因。
+
+##### Root cause 4: 改了 workflow，但没有先验证“新 workflow 自己能否跑通”
+新 workflow 引入了：
+- `appleboy/scp-action@v0.1.7`
+- release 打包 / 上传 / 解压目录
+- 复制 `.env`
+- 删除旧目录再替换运行目录
+
+这些动作比旧 workflow 更复杂，但本轮没有先拿到：
+- 新 Actions 失败日志的完整输出
+- `scp-action` 是否成功上传
+- 服务器 release 目录是否真的生成
+- `curl http://127.0.0.1:8083/api/health` 失败在哪一步
+
+所以当前只能确认：
+- **新方案已经写了**
+- **但不能确认新方案已经在线上真实跑通**
+
+##### Root cause 5: 我在执行上也存在问题
+这次没有修成，我这里有几条明确失误，后续必须避免：
+
+1. **过早下结论**
+   - 在只拿到部分现象时，就把根因判断收得太快
+   - 结果是每次修一层，后面又暴露新问题
+
+2. **没有先把“线上真实状态核查清单”跑完，再改代码**
+   - 用户明确要求是修部署
+   - 这种问题本质上比代码逻辑更依赖运行态事实
+   - 正确顺序应该是：先完整拿到线上状态，再决定到底改 workflow、改 compose，还是先清理服务器
+
+3. **把“提交了新方案”误当成“问题已被解决”**
+   - 实际上当前最多只能说：
+     - 已经尝试过几轮修复
+     - 已经沉淀出更合理的新方案
+     - 但线上恢复仍未验证成功
+
+#### Current verified conclusion
+
+到当前对话结束，能确认的结论只有这些：
+
+1. **GitHub Actions 自动部署仍未恢复成功**
+2. **之前至少出现过三类真实失败点：**
+   - 服务器脏工作区拦截 `git pull`
+   - 服务器访问 GitHub HTTPS 不稳定（`Empty reply from server`）
+   - 服务器已有服务/旧栈占用端口（至少出现过 3306 冲突）
+3. **当前仓库里的“新部署方案”已经改成：**
+   - 前端入口目标：`http://111.230.113.110:8083`
+   - 正式部署栈：`deploy/docker-compose.all-in-one.yml`
+   - 自动部署策略：GitHub runner 打包 → SCP 上传 → SSH 解压部署
+4. **但在没有拿到这次新 workflow 的完整失败日志之前，不能再声称“已经修好”**
+
+#### Correct next rule
+
+后续如果继续修这个部署问题，必须按下面顺序来，不能再跳步：
+
+1. **先拿到这次新 workflow 的完整失败日志**
+   - 必须看到失败停在哪一步：
+     - Create release archive
+     - Upload release archive
+     - Deploy release on server
+     - curl health check
+
+2. **再拿服务器运行态事实**
+   先在服务器执行并留档：
+   ```bash
+   docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
+   ss -ltnp | grep -E ':3306|:6379|:8080|:8083'
+   ls -la /root/AI-center
+   ls -la /root/AI-center/releases
+   ls -la /root/AI-center/AI-Transfer-Station
+   cd /root/AI-center/AI-Transfer-Station
+   docker compose -f deploy/docker-compose.all-in-one.yml ps || true
+   docker compose -f deploy/docker-compose.prod.yml ps || true
+   docker compose -f docker-compose.yml ps || true
+   ```
+
+3. **最后才决定下一步改哪一层**
+   - 如果失败在 SCP：修上传链路
+   - 如果失败在 SSH 解压：修 release 目录逻辑
+   - 如果失败在 compose up：修容器/环境变量/端口
+   - 如果失败在 curl health check：修服务启动顺序或后端可达性
+
+明确规则：
+- **部署类问题，先拿完整失败日志和运行态状态，再改代码。**
+- **不要再只根据部分报错就宣布“根因已经锁定”。**
+
 
 ## 4. Current Technical State
 

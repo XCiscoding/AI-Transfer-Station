@@ -21,11 +21,14 @@ jobs:
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.claude' \
+            --exclude='.trae' \
+            --exclude='.venv' \
             --exclude='node_modules' \
             --exclude='frontend/node_modules' \
             --exclude='backend/target' \
             --exclude='.idea' \
             --exclude='.vscode' \
+            --exclude='*.log' \
             -czf "${{ env.RELEASE_NAME }}.tar.gz" .
 
       - name: Upload release archive
