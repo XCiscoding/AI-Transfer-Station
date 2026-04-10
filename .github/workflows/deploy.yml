@@ -57,8 +57,11 @@ jobs:
             ARCHIVE_PATH="${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
 
             if [ ! -f "$ARCHIVE_PATH" ]; then
-              find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz"
-              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1)
+              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1 || true)
+            fi
+
+            if [ -n "$ARCHIVE_PATH" ]; then
+              echo "Using release archive: $ARCHIVE_PATH"
             fi
 
             if [ -z "$ARCHIVE_PATH" ] || [ ! -f "$ARCHIVE_PATH" ]; then

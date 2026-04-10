@@ -370,10 +370,15 @@
      - `scp-action` 实际落盘路径
      - 与 ssh 脚本里写死的 `cd /root/AI-center/releases && tar -xzf release-<sha>.tar.gz`
      - **两边并没有对齐**
+   - 后续日志进一步确认：
+     - release 包实际已经上传到了 `/root/AI-center/releases/github/runner_temp/release-<sha>.tar.gz`
+     - 但 ssh 脚本第一次修法里，`find` 虽然把路径打印出来了，脚本仍然继续进入“找不到文件”分支
+   - 这说明当时还不只是“路径没对齐”，还包括：
+     - **shell 里的 archive 路径赋值 / 判空逻辑本身也没有写稳**
    - 当前正确修正方向应当是：
      - 上传目标路径显式收口
-     - ssh 解压前先按文件名搜索 release 包真实落点
-     - 找不到时先打印 releases 目录文件清单，再失败退出
+     - ssh 解压前先把 `find` 结果赋值给变量，再显式打印最终使用的 archive 路径
+     - 找不到时再打印 releases 目录文件清单后失败退出
 
 #### Why this still did not get fixed successfully
 
@@ -441,6 +446,7 @@
 - `Deploy release on server` 阶段解压时报：`release-<sha>.tar.gz: Cannot open: No such file or directory`
 - 说明 workflow 已经进入服务器阶段，但 `scp-action` 的真实上传落点和 ssh 脚本里假设的 release 包位置并不一致
 - 也就是说：**当前除了 runner 打包问题外，上传路径和服务器解压路径之间也存在断层**
+- 后续日志又进一步确认：release 包其实已经上传到了 `/root/AI-center/releases/github/runner_temp/...`，只是 ssh 脚本第一次补的 `find + 变量赋值` 逻辑还不够稳，导致“明明找到了路径，仍然按未找到处理”
 
 所以当前只能确认：
 - **新方案已经写了**
