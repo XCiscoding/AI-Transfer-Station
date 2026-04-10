@@ -22,5 +22,5 @@ jobs:
             cd /root/AI-center/AI-Transfer-Station
             git stash push -u -m "auto-stash-before-deploy" || true
             git pull origin main
-            docker compose down
-            docker compose up -d --build
+            docker compose -f deploy/docker-compose.all-in-one.yml down
+            docker compose -f deploy/docker-compose.all-in-one.yml up -d --build

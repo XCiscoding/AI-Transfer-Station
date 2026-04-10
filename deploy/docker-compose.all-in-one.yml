@@ -86,7 +86,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "8083:80"
     environment:
       - NGINX_HOST=localhost
       - NGINX_PORT=80
