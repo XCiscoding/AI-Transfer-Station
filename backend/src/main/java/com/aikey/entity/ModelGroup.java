@@ -32,7 +32,7 @@ public class ModelGroup {
     private String description;
 
     /** 模型ID列表，存储为JSON数组字符串，如 [1,2,3] */
-    @Column(name = "model_ids", columnDefinition = "TEXT", nullable = false)
+    @Column(name = "models", columnDefinition = "TEXT", nullable = false)
     private String modelIds;
 
     @Builder.Default

@@ -110,6 +110,8 @@
             <div class="user-info">
               <el-avatar :size="36" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png" />
               <span class="username">{{ username }}</span>
+              <el-tag v-if="isEnterpriseAdmin" size="small" type="warning" effect="plain" class="role-badge">企业管理员</el-tag>
+              <el-tag v-else-if="isTeamAdmin" size="small" type="success" effect="plain" class="role-badge">团队管理员</el-tag>
               <el-icon><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
@@ -132,7 +134,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useThemeStore } from '@/stores/theme.js'
@@ -142,7 +144,35 @@ const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const isCollapse = ref(false)
-const username = ref(localStorage.getItem('username') || '管理员')
+const userInfo = ref(readStoredUserInfo())
+const username = computed(() => userInfo.value?.username || localStorage.getItem('username') || '管理员')
+
+function readStoredUserInfo() {
+  try {
+    return JSON.parse(localStorage.getItem('userInfo') || 'null')
+  } catch {
+    return null
+  }
+}
+
+function getStoredRoles() {
+  if (Array.isArray(userInfo.value?.roles)) {
+    return userInfo.value.roles
+  }
+  try {
+    return JSON.parse(localStorage.getItem('roles') || '[]')
+  } catch {
+    return []
+  }
+}
+
+function syncUserInfo() {
+  userInfo.value = readStoredUserInfo()
+}
+
+const isEnterpriseAdmin = computed(() => Boolean(userInfo.value?.isSuperAdmin || getStoredRoles().includes('SUPER_ADMIN')))
+
+const isTeamAdmin = computed(() => Boolean(userInfo.value?.isTeamOwner))
 
 const currentPageTitle = computed(() => {
   return route.meta.title || '当前页面'
@@ -150,7 +180,22 @@ const currentPageTitle = computed(() => {
 
 onMounted(() => {
   themeStore.initTheme()
+  syncUserInfo()
+  window.addEventListener('storage', syncUserInfo)
+  window.addEventListener('focus', syncUserInfo)
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', syncUserInfo)
+  window.removeEventListener('focus', syncUserInfo)
+})
+
+watch(
+  () => route.fullPath,
+  () => {
+    syncUserInfo()
+  }
+)
 
 function handleLogout() {
   ElMessageBox.confirm(
@@ -164,6 +209,9 @@ function handleLogout() {
   ).then(() => {
     localStorage.removeItem('token')
     localStorage.removeItem('username')
+    localStorage.removeItem('roles')
+    localStorage.removeItem('userInfo')
+    userInfo.value = null
     ElMessage.success('已退出登录')
     router.push('/login')
   }).catch(() => {})
@@ -393,6 +441,12 @@ function handleLogout() {
   font-size: 14px;
   font-weight: 500;
   color: #F8FAFC;
+}
+
+.role-badge {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #FBBF24;
+  background: rgba(245, 158, 11, 0.12);
 }
 
 /* 主内容区样式 */

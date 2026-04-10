@@ -4,6 +4,10 @@ export function getModelGroupAll() {
   return request({ url: '/model-groups/all', method: 'get' })
 }
 
+export function getModelGroupChannels(id) {
+  return request({ url: `/model-groups/${id}/channels`, method: 'get' })
+}
+
 export function getModelGroupList(params) {
   return request({ url: '/model-groups', method: 'get', params })
 }

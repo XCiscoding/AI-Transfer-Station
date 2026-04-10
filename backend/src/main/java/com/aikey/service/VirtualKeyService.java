@@ -4,9 +4,15 @@ import com.aikey.dto.common.PageResult;
 import com.aikey.dto.virtualkey.VirtualKeyCreateRequest;
 import com.aikey.dto.virtualkey.VirtualKeyUpdateRequest;
 import com.aikey.dto.virtualkey.VirtualKeyVO;
+import com.aikey.entity.Channel;
+import com.aikey.entity.Project;
+import com.aikey.entity.Team;
 import com.aikey.entity.User;
 import com.aikey.entity.VirtualKey;
 import com.aikey.exception.BusinessException;
+import com.aikey.repository.ChannelRepository;
+import com.aikey.repository.ProjectRepository;
+import com.aikey.repository.TeamMemberRepository;
 import com.aikey.repository.UserRepository;
 import com.aikey.repository.VirtualKeyRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -14,8 +20,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -43,6 +49,16 @@ public class VirtualKeyService {
 
     private final UserRepository userRepository;
 
+    private final ChannelRepository channelRepository;
+
+    private final ProjectRepository projectRepository;
+
+    private final TeamMemberRepository teamMemberRepository;
+
+    private final TeamService teamService;
+
+    private final ModelGroupService modelGroupService;
+
     private final ObjectMapper objectMapper;
 
     /**
@@ -56,24 +72,31 @@ public class VirtualKeyService {
     public VirtualKeyVO createVirtualKey(VirtualKeyCreateRequest request) {
         log.info("生成虚拟Key: name={}, userId={}", request.getKeyName(), request.getUserId());
 
-        // 验证用户存在
+        Team team = teamService.getManageableTeam(request.getTeamId());
+
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new BusinessException("用户不存在"));
+        validateTeamMember(team.getId(), user.getId());
 
-        // 生成唯一的Key值
+        Project project = validateProject(team.getId(), request.getProjectId());
+
+        validateAllowedGroupIds(request.getAllowedGroupIds());
+        teamService.validateTeamGroupAccess(team.getId(), request.getAllowedGroupIds());
+        validateChannel(request.getAllowedGroupIds(), request.getChannelId());
+
         String keyValue = generateUniqueKeyValue();
 
         LocalDateTime now = LocalDateTime.now();
 
-        // 构建实体并保存
         VirtualKey virtualKey = VirtualKey.builder()
                 .keyName(request.getKeyName())
                 .keyValue(keyValue)
                 .user(user)
-                .teamId(request.getTeamId())
-                .projectId(request.getProjectId())
+                .teamId(team.getId())
+                .projectId(project.getId())
                 .allowedModels(request.getAllowedModels())
                 .allowedGroupIds(toJson(request.getAllowedGroupIds()))
+                .channelId(request.getChannelId())
                 .quotaType(request.getQuotaType())
                 .quotaLimit(request.getQuotaLimit())
                 .quotaUsed(BigDecimal.ZERO)
@@ -194,22 +217,31 @@ public class VirtualKeyService {
         }
 
         try {
+            if (request.getTeamId() != null && !request.getTeamId().equals(virtualKey.getTeamId())) {
+                throw new BusinessException("不允许修改虚拟Key所属团队");
+            }
+
+            List<Long> finalAllowedGroupIds = request.getAllowedGroupIds() != null
+                    ? request.getAllowedGroupIds()
+                    : fromJson(virtualKey.getAllowedGroupIds());
+            Long finalChannelId = request.getChannelId() != null ? request.getChannelId() : virtualKey.getChannelId();
+            Long finalProjectId = request.getProjectId() != null ? request.getProjectId() : virtualKey.getProjectId();
+
+            validateAllowedGroupIds(finalAllowedGroupIds);
+            validateProject(virtualKey.getTeamId(), finalProjectId);
+            teamService.validateTeamGroupAccess(virtualKey.getTeamId(), finalAllowedGroupIds);
+            validateChannel(finalAllowedGroupIds, finalChannelId);
+
             // 逐字段更新非空值
             if (StringUtils.hasText(request.getKeyName())) {
                 virtualKey.setKeyName(request.getKeyName());
             }
-            if (request.getTeamId() != null) {
-                virtualKey.setTeamId(request.getTeamId());
-            }
-            if (request.getProjectId() != null) {
-                virtualKey.setProjectId(request.getProjectId());
-            }
+            virtualKey.setProjectId(finalProjectId);
             if (request.getAllowedModels() != null) {
                 virtualKey.setAllowedModels(request.getAllowedModels());
             }
-            if (request.getAllowedGroupIds() != null) {
-                virtualKey.setAllowedGroupIds(toJson(request.getAllowedGroupIds()));
-            }
+            virtualKey.setAllowedGroupIds(toJson(finalAllowedGroupIds));
+            virtualKey.setChannelId(finalChannelId);
             if (StringUtils.hasText(request.getQuotaType())) {
                 virtualKey.setQuotaType(request.getQuotaType());
             }
@@ -367,6 +399,7 @@ public class VirtualKeyService {
      */
     private VirtualKeyVO convertToVO(VirtualKey virtualKey) {
         User user = virtualKey.getUser();
+        Channel channel = loadChannel(virtualKey.getChannelId());
         return VirtualKeyVO.builder()
                 .id(virtualKey.getId())
                 .keyName(virtualKey.getKeyName())
@@ -377,6 +410,9 @@ public class VirtualKeyService {
                 .projectId(virtualKey.getProjectId())
                 .allowedModels(virtualKey.getAllowedModels())
                 .allowedGroupIds(fromJson(virtualKey.getAllowedGroupIds()))
+                .channelId(virtualKey.getChannelId())
+                .channelName(channel != null ? channel.getChannelName() : null)
+                .channelBaseUrl(channel != null ? channel.getBaseUrl() : null)
                 .quotaType(virtualKey.getQuotaType())
                 .quotaLimit(virtualKey.getQuotaLimit())
                 .quotaUsed(virtualKey.getQuotaUsed())
@@ -390,6 +426,62 @@ public class VirtualKeyService {
                 .createdAt(virtualKey.getCreatedAt())
                 .updatedAt(virtualKey.getUpdatedAt())
                 .build();
+    }
+
+    private void validateAllowedGroupIds(List<Long> allowedGroupIds) {
+        if (allowedGroupIds == null || allowedGroupIds.isEmpty()) {
+            throw new BusinessException("请选择一个模型分组");
+        }
+        if (allowedGroupIds.size() > 1) {
+            throw new BusinessException("虚拟Key仅允许绑定一个模型分组");
+        }
+    }
+
+    private Project validateProject(Long teamId, Long projectId) {
+        if (projectId == null) {
+            throw new BusinessException("请选择所属项目");
+        }
+        Project project = projectRepository.findByIdAndDeleted(projectId, 0)
+                .orElseThrow(() -> new BusinessException("项目不存在"));
+        if (project.getTeam() == null || !teamId.equals(project.getTeam().getId())) {
+            throw new BusinessException("所选项目不属于当前团队");
+        }
+        return project;
+    }
+
+    private void validateTeamMember(Long teamId, Long userId) {
+        if (!teamMemberRepository.existsByTeamIdAndUserId(teamId, userId)) {
+            throw new BusinessException("所选用户不属于当前团队");
+        }
+    }
+
+    private void validateChannel(List<Long> allowedGroupIds, Long channelId) {
+        if (channelId == null) {
+            throw new BusinessException("请选择路由渠道");
+        }
+        Channel channel = channelRepository.findById(channelId)
+                .orElseThrow(() -> new BusinessException("指定渠道不存在"));
+        if (channel.getDeleted() == 1 || channel.getStatus() != 1) {
+            throw new BusinessException("指定渠道不可用");
+        }
+        if (allowedGroupIds == null || allowedGroupIds.isEmpty()) {
+            throw new BusinessException("请选择模型分组后再选择渠道");
+        }
+        Long groupId = allowedGroupIds.get(0);
+        boolean matched = modelGroupService.listChannelsByGroupId(groupId).stream()
+                .anyMatch(item -> item.getId().equals(channelId));
+        if (!matched) {
+            throw new BusinessException("所选渠道不属于当前模型分组");
+        }
+    }
+
+    private Channel loadChannel(Long channelId) {
+        if (channelId == null) {
+            return null;
+        }
+        return channelRepository.findById(channelId)
+                .filter(channel -> channel.getDeleted() == 0)
+                .orElse(null);
     }
 
     private String toJson(List<Long> list) {

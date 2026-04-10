@@ -24,5 +24,9 @@ public class UserInfoResponse {
 
     private List<String> roles;
 
+    private Boolean isSuperAdmin;
+
+    private Boolean isTeamOwner;
+
     private Integer status;
 }

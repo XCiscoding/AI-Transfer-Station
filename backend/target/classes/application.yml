@@ -23,20 +23,24 @@ spring:
   # JPA/Hibernate配置
   jpa:
     hibernate:
-      ddl-auto: update  # 首次启动时自动创建/更新表结构
+      ddl-auto: none
     show-sql: true
     properties:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
-    defer-datasource-initialization: true  # 延迟数据源初始化，确保JPA先创建表
 
-  # SQL初始化配置
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+
   sql:
     init:
       mode: always
-      data-locations: classpath:db/data.sql  # 只加载数据，表结构由JPA创建
-      continue-on-error: true
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
 
   # Redis配置（可选，不可用时降级运行）
   data:

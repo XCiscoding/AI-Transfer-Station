@@ -1,13 +1,19 @@
 package com.aikey.controller;
 
 import com.aikey.dto.common.Result;
+import com.aikey.dto.user.UserCreateRequest;
+import com.aikey.dto.user.UserCreateResponse;
 import com.aikey.repository.UserRepository;
+import com.aikey.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,6 +27,7 @@ import java.util.List;
 public class UserController {
 
     private final UserRepository userRepository;
+    private final UserService userService;
 
     @GetMapping
     @Operation(summary = "用户列表")
@@ -33,6 +40,12 @@ public class UserController {
                         .build())
                 .toList();
         return Result.success(users);
+    }
+
+    @PostMapping
+    @Operation(summary = "创建用户")
+    public Result<UserCreateResponse> create(@Valid @RequestBody UserCreateRequest request) {
+        return Result.success(userService.createUser(request));
     }
 
     @Data

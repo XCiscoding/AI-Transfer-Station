@@ -5,6 +5,8 @@ import com.aikey.dto.gateway.ChatCompletionResponse;
 import com.aikey.dto.gateway.UsageInfo;
 import com.aikey.entity.CallLog;
 import com.aikey.entity.Channel;
+import com.aikey.entity.Model;
+import com.aikey.entity.RealKey;
 import com.aikey.entity.VirtualKey;
 import com.aikey.exception.BusinessException;
 import com.aikey.gateway.auth.VirtualKeyAuthContext;
@@ -14,6 +16,8 @@ import com.aikey.gateway.dispatch.DispatchStrategyType;
 import com.aikey.gateway.proxy.ProxyForwardService;
 import com.aikey.gateway.ratelimit.RateLimitService;
 import com.aikey.repository.ChannelRepository;
+import com.aikey.repository.ModelRepository;
+import com.aikey.repository.RealKeyRepository;
 import com.aikey.repository.VirtualKeyRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,6 +47,8 @@ public class GatewayOrchestrationService {
     private final ProxyForwardService proxyForwardService;
     private final CallLogService callLogService;
     private final ChannelRepository channelRepository;
+    private final ModelRepository modelRepository;
+    private final RealKeyRepository realKeyRepository;
     private final VirtualKeyRepository virtualKeyRepository;
     private final ObjectMapper objectMapper;
 
@@ -89,12 +95,7 @@ public class GatewayOrchestrationService {
 
         for (int attempt = 1; attempt <= MAX_RETRY; attempt++) {
             try {
-                // 调度
-                dispatchResult = dispatchService.dispatch(
-                        request.getModel(),
-                        DispatchStrategyType.WEIGHTED,
-                        excludedChannelIds
-                );
+                dispatchResult = resolveDispatchResult(virtualKey, request.getModel(), excludedChannelIds);
 
                 // 转发
                 response = proxyForwardService.forwardChatCompletion(
@@ -180,6 +181,53 @@ public class GatewayOrchestrationService {
             log.warn("解析allowedModels失败: {}", e.getMessage());
             // 解析失败视为不限制
         }
+    }
+
+    private DispatchResult resolveDispatchResult(VirtualKey virtualKey, String modelCode, Set<Long> excludedChannelIds) {
+        if (virtualKey.getChannelId() == null) {
+            return dispatchService.dispatch(
+                    modelCode,
+                    DispatchStrategyType.WEIGHTED,
+                    excludedChannelIds
+            );
+        }
+        return dispatchByAssignedChannel(virtualKey.getChannelId(), modelCode, excludedChannelIds);
+    }
+
+    private DispatchResult dispatchByAssignedChannel(Long channelId, String modelCode, Set<Long> excludedChannelIds) {
+        if (excludedChannelIds != null && excludedChannelIds.contains(channelId)) {
+            throw new BusinessException(503, "Assigned channel is temporarily unavailable.");
+        }
+
+        Channel channel = channelRepository.findById(channelId)
+                .orElseThrow(() -> new BusinessException(404, "Assigned channel not found."));
+        if (channel.getDeleted() == 1 || channel.getStatus() != 1) {
+            throw new BusinessException(503, "Assigned channel is unavailable.");
+        }
+        if (channel.getHealthStatus() != null && channel.getHealthStatus() != 1) {
+            throw new BusinessException(503, "Assigned channel is unhealthy.");
+        }
+
+        Model model = modelRepository.findByModelCodeAndChannelIdAndDeleted(modelCode, channelId, 0).stream()
+                .filter(item -> item.getStatus() == 1)
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(400, "Assigned channel does not support model: " + modelCode));
+
+        List<RealKey> realKeys = realKeyRepository.findByChannelIdAndDeletedOrderByCreatedAtDesc(channelId, 0).stream()
+                .filter(realKey -> realKey.getStatus() == 1)
+                .filter(realKey -> realKey.getExpireTime() == null || realKey.getExpireTime().isAfter(LocalDateTime.now()))
+                .toList();
+        if (realKeys.isEmpty()) {
+            throw new BusinessException(503, "Assigned channel has no available real key.");
+        }
+
+        RealKey selectedKey = realKeys.get(0);
+        return DispatchResult.builder()
+                .channel(channel)
+                .model(model)
+                .realKey(selectedKey)
+                .strategyUsed(DispatchStrategyType.WEIGHTED)
+                .build();
     }
 
     private void handleSuccess(VirtualKey virtualKey, DispatchResult dispatchResult,

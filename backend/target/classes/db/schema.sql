@@ -169,6 +169,49 @@ CREATE TABLE `models` (
   CONSTRAINT `fk_models_channel` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模型表';
 
+-- 模型分组表
+DROP TABLE IF EXISTS `model_groups`;
+CREATE TABLE `model_groups` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '分组ID',
+  `group_name` VARCHAR(100) NOT NULL COMMENT '分组名称',
+  `group_code` VARCHAR(50) NOT NULL COMMENT '分组编码',
+  `description` VARCHAR(500) DEFAULT NULL COMMENT '分组描述',
+  `models` TEXT COMMENT '包含的模型列表（JSON数组）',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+  `sort_order` INT NOT NULL DEFAULT 0 COMMENT '排序',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_group_code` (`group_code`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模型分组表';
+
+-- 模型配置表
+DROP TABLE IF EXISTS `model_configs`;
+CREATE TABLE `model_configs` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '配置ID',
+  `model_name` VARCHAR(100) NOT NULL COMMENT '模型名称',
+  `model_code` VARCHAR(100) NOT NULL COMMENT '模型编码',
+  `model_type` VARCHAR(50) NOT NULL COMMENT '模型类型：chat, embedding, image',
+  `provider` VARCHAR(50) NOT NULL COMMENT '提供商：openai, anthropic, baidu, xunfei',
+  `input_price` DECIMAL(10, 2) DEFAULT 0.00 COMMENT '输入价格（每千Token，美元）',
+  `output_price` DECIMAL(10, 2) DEFAULT 0.00 COMMENT '输出价格（每千Token，美元）',
+  `context_window` INT DEFAULT 4096 COMMENT '上下文窗口大小',
+  `max_tokens` INT DEFAULT 4096 COMMENT '最大Token数',
+  `is_streaming` TINYINT NOT NULL DEFAULT 1 COMMENT '是否支持流式：0-否，1-是',
+  `is_vision` TINYINT NOT NULL DEFAULT 0 COMMENT '是否支持视觉：0-否，1-是',
+  `is_function_calling` TINYINT NOT NULL DEFAULT 0 COMMENT '是否支持函数调用：0-否，1-是',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+  `sort_order` INT NOT NULL DEFAULT 0 COMMENT '排序',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_model_code` (`model_code`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模型配置表';
+
 -- =====================================================
 -- 3. APIKey表
 -- =====================================================
@@ -206,6 +249,8 @@ CREATE TABLE `virtual_keys` (
   `team_id` BIGINT DEFAULT NULL COMMENT '所属团队ID',
   `project_id` BIGINT DEFAULT NULL COMMENT '所属项目ID',
   `allowed_models` TEXT COMMENT '允许的模型列表（JSON数组，为空表示不限制）',
+  `allowed_group_ids` TEXT DEFAULT NULL COMMENT '允许的模型分组ID列表（JSON数组）',
+  `channel_id` BIGINT DEFAULT NULL COMMENT '绑定渠道ID，为空表示自动调度',
   `quota_type` VARCHAR(20) NOT NULL DEFAULT 'token' COMMENT '额度类型：token, count, amount',
   `quota_limit` DECIMAL(20, 2) NOT NULL DEFAULT 0.00 COMMENT '额度上限',
   `quota_used` DECIMAL(20, 2) NOT NULL DEFAULT 0.00 COMMENT '已使用额度',
@@ -224,9 +269,11 @@ CREATE TABLE `virtual_keys` (
   KEY `idx_user_id` (`user_id`),
   KEY `idx_team_id` (`team_id`),
   KEY `idx_project_id` (`project_id`),
+  KEY `idx_channel_id` (`channel_id`),
   KEY `idx_status` (`status`),
   KEY `idx_expire_time` (`expire_time`),
-  CONSTRAINT `fk_virtual_keys_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_virtual_keys_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_virtual_keys_channel` FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='虚拟Key表';
 
 -- =====================================================
@@ -381,6 +428,7 @@ CREATE TABLE `teams` (
   `quota_remaining` DECIMAL(20, 2) NOT NULL DEFAULT 0.00 COMMENT '剩余额度',
   `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
   `quota_weight` DECIMAL(5, 2) NOT NULL DEFAULT 1.00 COMMENT '额度倍率（消耗时乘以此系数）',
+  `allowed_group_ids` TEXT DEFAULT NULL COMMENT '团队允许使用的模型分组ID列表（JSON数组）',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',

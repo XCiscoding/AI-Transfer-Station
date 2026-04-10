@@ -50,6 +50,9 @@ public class VirtualKey {
     @Column(name = "allowed_group_ids", columnDefinition = "TEXT")
     private String allowedGroupIds;  // 模型分组ID的JSON数组
 
+    @Column(name = "channel_id")
+    private Long channelId;
+
     @Column(name = "quota_type", length = 20, nullable = false)
     private String quotaType;  // token, count, amount
 
@@ -86,6 +89,7 @@ public class VirtualKey {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @Builder.Default
     @Column(name = "deleted", nullable = false, columnDefinition = "TINYINT")
     private Integer deleted = 0;
 }

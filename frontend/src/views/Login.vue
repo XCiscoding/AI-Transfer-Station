@@ -78,7 +78,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
-import { login } from '@/api/auth'
+import { login, getUserInfo } from '@/api/auth'
 import Logo from '@/components/Logo.vue'
 
 export default {
@@ -137,8 +137,35 @@ export default {
         if (response && response.data && response.data.token) {
           // 存储token到localStorage
           localStorage.setItem('token', response.data.token)
-          localStorage.setItem('username', response.data.username || loginForm.username)
-          localStorage.setItem('roles', JSON.stringify(response.data.roles || []))
+
+          let userInfo = {
+            userId: response.data.userId,
+            username: response.data.username || loginForm.username,
+            email: response.data.email,
+            roles: response.data.roles || [],
+            isSuperAdmin: Boolean(response.data.isSuperAdmin || response.data.roles?.includes('SUPER_ADMIN')),
+            isTeamOwner: Boolean(response.data.isTeamOwner),
+            status: response.data.status
+          }
+
+          try {
+            const meResponse = await getUserInfo()
+            if (meResponse?.data) {
+              userInfo = {
+                ...userInfo,
+                ...meResponse.data,
+                roles: meResponse.data.roles || userInfo.roles,
+                isSuperAdmin: Boolean(meResponse.data.isSuperAdmin || meResponse.data.roles?.includes('SUPER_ADMIN')),
+                isTeamOwner: Boolean(meResponse.data.isTeamOwner)
+              }
+            }
+          } catch (userInfoError) {
+            console.warn('获取当前用户信息失败，回退使用登录响应:', userInfoError)
+          }
+
+          localStorage.setItem('username', userInfo.username || loginForm.username)
+          localStorage.setItem('roles', JSON.stringify(userInfo.roles || []))
+          localStorage.setItem('userInfo', JSON.stringify(userInfo))
 
           // 显示成功提示
           ElMessage.success('登录成功')

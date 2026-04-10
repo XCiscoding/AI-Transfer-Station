@@ -1,6 +1,7 @@
 package com.aikey.dto.virtualkey;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -23,13 +24,15 @@ public class VirtualKeyCreateRequest {
     private Long userId;
 
     /**
-     * 团队ID（可选）
+     * 团队ID
      */
+    @NotNull(message = "团队ID不能为空")
     private Long teamId;
 
     /**
-     * 项目ID（可选）
+     * 项目ID
      */
+    @NotNull(message = "所属项目不能为空")
     private Long projectId;
 
     /**
@@ -39,9 +42,16 @@ public class VirtualKeyCreateRequest {
     private String allowedModels;
 
     /**
-     * 允许的模型分组ID列表
+     * 允许的模型分组ID列表，仅允许单个分组
      */
+    @NotEmpty(message = "请选择模型分组")
     private List<Long> allowedGroupIds;
+
+    /**
+     * 指定路由渠道ID
+     */
+    @NotNull(message = "路由渠道不能为空")
+    private Long channelId;
 
     @NotBlank(message = "额度类型不能为空")
     private String quotaType;  // token, count, amount

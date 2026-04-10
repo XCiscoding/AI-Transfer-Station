@@ -10,6 +10,15 @@ public class PasswordTest {
     public static void main(String[] args) {
         BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
+        if (args.length > 0) {
+            String rawPassword = args[0];
+            String newHash = encoder.encode(rawPassword);
+            System.out.println("原始密码: " + rawPassword);
+            System.out.println("新生成的哈希: " + newHash);
+            System.out.println("新哈希验证: " + encoder.matches(rawPassword, newHash));
+            return;
+        }
+
         String rawPassword = "admin123";
         String hashFromDataSql = "$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iKTVKIUi";
 

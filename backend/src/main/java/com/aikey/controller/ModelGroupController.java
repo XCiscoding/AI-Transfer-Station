@@ -1,5 +1,6 @@
 package com.aikey.controller;
 
+import com.aikey.dto.channel.ChannelVO;
 import com.aikey.dto.common.PageResult;
 import com.aikey.dto.common.Result;
 import com.aikey.dto.modelgroup.ModelGroupCreateRequest;
@@ -44,6 +45,12 @@ public class ModelGroupController {
     @Operation(summary = "获取模型分组详情")
     public Result<ModelGroupVO> getById(@PathVariable Long id) {
         return Result.success(modelGroupService.getById(id));
+    }
+
+    @GetMapping("/{id}/channels")
+    @Operation(summary = "获取模型分组可用渠道")
+    public Result<List<ChannelVO>> listChannels(@PathVariable Long id) {
+        return Result.success(modelGroupService.listChannelsByGroupId(id));
     }
 
     @PostMapping

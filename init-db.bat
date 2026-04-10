@@ -71,23 +71,16 @@ if %errorlevel% neq 0 (
 )
 echo ✅ 数据库 ai_key_management 已创建
 
-echo [3/4] 导入表结构...
-mysql -u root -proot ai_key_management < "%DB_SCRIPTS%\schema.sql" 2>nul
+echo [3/4] 执行 Flyway 迁移...
+call mvn -f "%PROJECT_ROOT%backend\pom.xml" flyway:migrate >nul 2>nul
 if %errorlevel% neq 0 (
-    echo ❌ 表结构导入失败
+    echo ❌ Flyway 迁移失败，请检查数据库连接和迁移脚本
     pause
     exit /b 1
 )
-echo ✅ 表结构导入完成（18张表）
+echo ✅ Flyway 迁移完成
 
-echo [4/4] 导入初始数据...
-mysql -u root -proot ai_key_management < "%DB_SCRIPTS%\data.sql" 2>nul
-if %errorlevel% neq 0 (
-    echo ❌ 初始数据导入失败
-    pause
-    exit /b 1
-)
-echo ✅ 初始数据导入完成
+echo [4/4] 启动时将由 Flyway 负责表结构与初始数据
 
 echo.
 echo ════════════════════════════════════════════════════════════
@@ -99,12 +92,12 @@ goto end
 
 :schema_only
 echo.
-echo [1/2] 导入表结构...
-mysql -u root -proot ai_key_management < "%DB_SCRIPTS%\schema.sql" 2>nul
+echo [1/2] 执行 Flyway 迁移...
+call mvn -f "%PROJECT_ROOT%backend\pom.xml" flyway:migrate >nul 2>nul
 if %errorlevel% neq 0 (
-    echo ⚠️  表结构导入可能失败（表可能已存在）
+    echo ⚠️  Flyway 迁移失败，请检查数据库连接或迁移状态
 ) else (
-    echo ✅ 表结构导入完成
+    echo ✅ Flyway 迁移完成
 )
 
 echo [2/2] 验证表数量...
@@ -115,12 +108,12 @@ goto end
 
 :data_only
 echo.
-echo [1/1] 导入初始数据...
-mysql -u root -proot ai_key_management < "%DB_SCRIPTS%\data.sql" 2>nul
+echo [1/1] 提示：初始数据已由 Flyway 管理，请执行完整迁移
+call mvn -f "%PROJECT_ROOT%backend\pom.xml" flyway:migrate >nul 2>nul
 if %errorlevel% neq 0 (
-    echo ⚠️  数据导入可能失败（数据可能已存在）
+    echo ⚠️  Flyway 迁移失败，请检查数据库连接或迁移状态
 ) else (
-    echo ✅ 初始数据导入完成
+    echo ✅ Flyway 迁移完成
     echo   管理员账号：admin / admin123
 )
 pause

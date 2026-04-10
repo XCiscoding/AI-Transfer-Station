@@ -23,11 +23,15 @@
             <el-button @click="resetSearch">重置</el-button>
           </el-form-item>
         </el-form>
-        <el-button type="primary" class="add-btn" @click="handleAdd">
+        <el-button type="primary" class="add-btn" :disabled="!canManageCurrentTeamContext" @click="handleAdd">
           <el-icon><Plus /></el-icon>
           新增项目
         </el-button>
       </div>
+    </div>
+
+    <div v-if="teamContextBlockedReason" class="team-context-tip glass-card">
+      {{ teamContextBlockedReason }}
     </div>
 
     <!-- 数据表格区域 -->
@@ -158,7 +162,7 @@
           </el-col>
         </el-row>
 
-        <el-form-item label="所属团队">
+        <el-form-item v-if="isSuperAdmin" label="所属团队">
           <el-select
             v-model="formData.teamId"
             placeholder="可选，选择所属团队"
@@ -172,6 +176,10 @@
               :value="team.id"
             />
           </el-select>
+        </el-form-item>
+
+        <el-form-item v-else label="所属团队">
+          <el-input :model-value="currentTeamName || '当前团队待识别'" readonly />
         </el-form-item>
 
         <el-row :gutter="20">
@@ -223,24 +231,25 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Edit, Delete } from '@element-plus/icons-vue'
 import { getProjectList, createProject, updateProject, deleteProject } from '@/api/project'
 import { getTeamList } from '@/api/team'
-
-function getCurrentUserId() {
-  try {
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    return userInfo.userId || userInfo.id || 1
-  } catch {
-    return 1
-  }
-}
+import { getUserInfo } from '@/api/auth'
 
 const tableData = ref([])
 const loading = ref(false)
 const teamOptions = ref([])
+const currentUser = ref(null)
+const currentTeam = ref(null)
+
+const isSuperAdmin = computed(() => Boolean(currentUser.value?.isSuperAdmin || currentUser.value?.roles?.includes('SUPER_ADMIN')))
+const currentTeamId = computed(() => currentTeam.value?.id || null)
+const currentTeamName = computed(() => currentTeam.value?.teamName || '')
+const teamContextReady = ref(false)
+const teamContextBlockedReason = ref('')
+const canManageCurrentTeamContext = computed(() => isSuperAdmin.value || (teamContextReady.value && !!currentTeamId.value && !teamContextBlockedReason.value))
 
 const searchForm = reactive({ keyword: '' })
 const pagination = reactive({ page: 1, size: 10, total: 0 })
@@ -270,10 +279,53 @@ const formRules = {
 
 let searchTimer = null
 
-onMounted(() => {
-  fetchList()
-  fetchTeamOptions()
+onMounted(async () => {
+  await initPage()
 })
+
+async function initPage() {
+  await fetchCurrentUser()
+  await fetchCurrentTeam()
+  if (isSuperAdmin.value) {
+    teamContextReady.value = true
+    teamContextBlockedReason.value = ''
+  }
+  await fetchList()
+  if (isSuperAdmin.value) {
+    await fetchTeamOptions()
+  }
+}
+
+async function fetchCurrentUser() {
+  try {
+    const res = await getUserInfo()
+    currentUser.value = res.code === 200 ? res.data : null
+  } catch {
+    currentUser.value = null
+    ElMessage.error('获取当前用户信息失败')
+  }
+}
+
+async function fetchCurrentTeam() {
+  if (isSuperAdmin.value) {
+    currentTeam.value = null
+    teamContextReady.value = true
+    teamContextBlockedReason.value = ''
+    return
+  }
+  try {
+    const res = await getTeamList({ page: 1, size: 10 })
+    const records = res.code === 200 && res.data ? (res.data.records || []) : []
+    currentTeam.value = records[0] || null
+    teamContextReady.value = Boolean(currentTeam.value)
+    teamContextBlockedReason.value = currentTeam.value ? '' : '当前账号没有可管理团队，暂时无法创建或管理项目。'
+  } catch (error) {
+    currentTeam.value = null
+    teamContextReady.value = false
+    teamContextBlockedReason.value = '当前账号没有可用的团队上下文，暂时无法创建或管理项目。'
+    console.error('获取当前团队失败:', error)
+  }
+}
 
 async function fetchList() {
   loading.value = true
@@ -281,7 +333,8 @@ async function fetchList() {
     const params = {
       page: pagination.page,
       size: pagination.size,
-      keyword: searchForm.keyword || undefined
+      keyword: searchForm.keyword || undefined,
+      teamId: !isSuperAdmin.value ? currentTeamId.value || undefined : undefined
     }
     const res = await getProjectList(params)
     if (res.code === 200 && res.data) {
@@ -342,9 +395,20 @@ function handlePageChange(val) {
 }
 
 function handleAdd() {
+  if (!canManageCurrentTeamContext.value) {
+    ElMessage.warning(teamContextBlockedReason.value || '未识别到当前团队，暂时无法创建项目')
+    return
+  }
   isEdit.value = false
   currentEditId.value = null
-  Object.assign(formData, { projectName: '', projectCode: '', description: '', teamId: null, quotaLimit: 0, quotaWeight: 1.0 })
+  Object.assign(formData, {
+    projectName: '',
+    projectCode: '',
+    description: '',
+    teamId: isSuperAdmin.value ? null : currentTeamId.value,
+    quotaLimit: 0,
+    quotaWeight: 1.0
+  })
   dialogVisible.value = true
 }
 
@@ -355,31 +419,45 @@ function handleEdit(row) {
     projectName: row.projectName,
     projectCode: row.projectCode,
     description: row.description || '',
-    teamId: row.teamId || null,
+    teamId: row.teamId || currentTeamId.value || null,
     quotaLimit: Number(row.quotaLimit) || 0,
     quotaWeight: Number(row.quotaWeight) || 1.0
   })
   dialogVisible.value = true
 }
 
+function buildProjectPayload() {
+  return {
+    projectName: formData.projectName,
+    description: formData.description,
+    quotaLimit: formData.quotaLimit,
+    quotaWeight: formData.quotaWeight,
+    ...(isSuperAdmin.value ? { teamId: formData.teamId } : {})
+  }
+}
+
 function handleSubmit() {
   formRef.value?.validate(async (valid) => {
     if (!valid) return
+    const ownerId = currentUser.value?.userId
+    if (!ownerId) {
+      ElMessage.error('未获取到当前用户信息，请重新登录')
+      return
+    }
+    if (!canManageCurrentTeamContext.value) {
+      ElMessage.error(teamContextBlockedReason.value || '未识别到当前团队，无法提交项目')
+      return
+    }
     submitLoading.value = true
     try {
       let res
       if (isEdit.value) {
-        res = await updateProject(currentEditId.value, {
-          projectName: formData.projectName,
-          description: formData.description,
-          teamId: formData.teamId,
-          quotaLimit: formData.quotaLimit,
-          quotaWeight: formData.quotaWeight
-        })
+        res = await updateProject(currentEditId.value, buildProjectPayload())
       } else {
         res = await createProject({
-          ...formData,
-          ownerId: getCurrentUserId()
+          ...buildProjectPayload(),
+          projectCode: formData.projectCode,
+          ownerId
         })
       }
       if (res.code === 200) {

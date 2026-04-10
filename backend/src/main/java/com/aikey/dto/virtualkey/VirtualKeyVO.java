@@ -63,6 +63,21 @@ public class VirtualKeyVO {
     private List<Long> allowedGroupIds;
 
     /**
+     * 指定路由渠道ID
+     */
+    private Long channelId;
+
+    /**
+     * 指定路由渠道名称
+     */
+    private String channelName;
+
+    /**
+     * 指定路由渠道URL
+     */
+    private String channelBaseUrl;
+
+    /**
      * 额度类型（token, count, amount）
      */
     private String quotaType;

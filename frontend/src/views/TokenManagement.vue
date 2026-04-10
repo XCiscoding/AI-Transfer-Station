@@ -7,10 +7,20 @@
           <el-icon><Connection /></el-icon>
           虚拟Key管理
         </span>
-        <el-button type="primary" class="add-btn" @click="handleAdd">
-          <el-icon><Plus /></el-icon>
-          新增虚拟Key
-        </el-button>
+        <div class="header-actions">
+          <el-tag v-if="canManageTeamContext" type="primary" effect="dark" round>
+            当前团队：{{ teamContext.teamName }}
+          </el-tag>
+          <el-button type="primary" class="add-btn" :disabled="!canManageTeamContext" @click="handleAdd">
+            新增虚拟Key
+          </el-button>
+        </div>
+      </div>
+      <div v-if="!hasTeamContext" class="team-context-tip">
+        请从团队管理页进入令牌创建流程；当前页面仅支持在团队上下文下新建 Key。
+      </div>
+      <div v-else-if="teamContextBlockedReason" class="team-context-tip">
+        {{ teamContextBlockedReason }}
       </div>
     </div>
 
@@ -179,6 +189,18 @@
       class="token-dialog virtual-key-dialog"
       destroy-on-close
     >
+      <el-alert
+        v-if="legacyEditWarnings.length"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="legacy-warning"
+      >
+        <template #title>
+          这是历史旧数据，必须先补齐后才能保存：{{ legacyEditWarnings.join('；') }}。
+        </template>
+      </el-alert>
+
       <el-form
         ref="virtualFormRef"
         :model="virtualFormData"
@@ -187,6 +209,43 @@
         label-position="right"
         class="token-form"
       >
+        <el-form-item label="所属团队">
+          <el-input :model-value="teamContext.teamName || '未选择团队'" readonly />
+        </el-form-item>
+
+        <el-form-item label="发放成员" prop="userId">
+          <el-select
+            v-model="virtualFormData.userId"
+            placeholder="请选择团队成员"
+            style="width: 100%"
+            filterable
+            :loading="memberOptionsLoading"
+          >
+            <el-option
+              v-for="member in memberOptions"
+              :key="member.userId"
+              :label="member.realName ? `${member.username}（${member.realName}）` : member.username"
+              :value="member.userId"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="所属项目" prop="projectId">
+          <el-select
+            v-model="virtualFormData.projectId"
+            placeholder="请选择所属项目"
+            style="width: 100%"
+            :loading="projectOptionsLoading"
+          >
+            <el-option
+              v-for="project in projectOptions"
+              :key="project.id"
+              :label="project.projectName"
+              :value="project.id"
+            />
+          </el-select>
+        </el-form-item>
+
         <el-form-item label="Key名称" prop="keyName">
           <el-input v-model="virtualFormData.keyName" placeholder="请输入Key名称" />
         </el-form-item>
@@ -261,14 +320,12 @@
           </el-col>
         </el-row>
 
-        <el-form-item label="模型分组">
+        <el-form-item label="模型分组" prop="selectedGroupId">
           <el-select
-            v-model="virtualFormData.allowedGroupIds"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            placeholder="选择允许的模型分组（可多选，不选则不限）"
+            v-model="virtualFormData.selectedGroupId"
+            placeholder="请选择一个模型分组"
             style="width: 100%"
+            @change="handleGroupChange"
           >
             <el-option
               v-for="group in modelGroupOptions"
@@ -277,6 +334,27 @@
               :value="group.id"
             />
           </el-select>
+        </el-form-item>
+
+        <el-form-item label="路由渠道" prop="channelId">
+          <el-select
+            v-model="virtualFormData.channelId"
+            placeholder="请先选择模型分组"
+            style="width: 100%"
+            :disabled="!virtualFormData.selectedGroupId"
+            :loading="channelOptionsLoading"
+          >
+            <el-option
+              v-for="channel in channelOptions"
+              :key="channel.id"
+              :label="`${channel.channelName}（${channel.baseUrl}）`"
+              :value="channel.id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item v-if="selectedChannel" label="渠道URL">
+          <el-input :model-value="selectedChannel.baseUrl" readonly />
         </el-form-item>
 
         <el-form-item label="备注">
@@ -302,10 +380,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus,
   Search,
   Edit,
   Delete,
@@ -315,18 +393,51 @@ import {
 } from '@element-plus/icons-vue'
 import {
   getVirtualKeyList,
+  getVirtualKeyDetail,
   createVirtualKey,
   updateVirtualKey,
   refreshVirtualKey,
   toggleVirtualKeyStatus,
   deleteVirtualKey
 } from '@/api/virtualkey'
-import { getModelGroupAll } from '@/api/modelgroup'
+import { getModelGroupAll, getModelGroupChannels } from '@/api/modelgroup'
+import { getProjectList } from '@/api/project'
+import { getTeamMembers } from '@/api/team'
 
-// ==================== 全局状态 ====================
+const route = useRoute()
+const router = useRouter()
 
-// 模型分组列表
+const teamContext = reactive({
+  teamId: null,
+  teamName: '',
+  autoCreateHandled: false
+})
+
+const hasTeamContext = computed(() => !!teamContext.teamId)
+const teamContextReady = ref(false)
+const teamContextBlockedReason = ref('')
+const canManageTeamContext = computed(() => hasTeamContext.value && teamContextReady.value && !teamContextBlockedReason.value)
 const modelGroupOptions = ref([])
+const projectOptions = ref([])
+const memberOptions = ref([])
+const projectOptionsLoading = ref(false)
+const memberOptionsLoading = ref(false)
+const channelOptions = ref([])
+const channelOptionsLoading = ref(false)
+const selectedChannel = computed(() =>
+  channelOptions.value.find(channel => channel.id === virtualFormData.channelId) || null
+)
+const legacyEditWarnings = computed(() => {
+  const warnings = []
+  if (!isVirtualEdit.value) return warnings
+  if (legacyEditState.missingChannel) {
+    warnings.push('补齐路由渠道')
+  }
+  if (legacyEditState.multipleGroups) {
+    warnings.push('将模型分组收敛为单选')
+  }
+  return warnings
+})
 
 async function fetchModelGroups() {
   try {
@@ -342,17 +453,133 @@ async function fetchModelGroups() {
   }
 }
 
-// 获取当前登录用户ID（从 localStorage 中的 userInfo 或 token 解析）
-function getCurrentUserId() {
+async function fetchProjectOptions() {
+  if (!hasTeamContext.value) {
+    projectOptions.value = []
+    return true
+  }
+  projectOptionsLoading.value = true
   try {
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    return userInfo.userId || userInfo.id || 1
-  } catch {
-    return 1
+    const res = await getProjectList({ page: 1, size: 100, teamId: teamContext.teamId })
+    projectOptions.value = res.code === 200 && res.data ? (res.data.records || []) : []
+    return true
+  } catch (error) {
+    projectOptions.value = []
+    console.warn('获取项目列表失败:', error)
+    if (error?.response?.status === 403 || error?.response?.status === 401) {
+      teamContextBlockedReason.value = '当前账号无权使用这个团队上下文，请从团队管理页重新进入。'
+      return false
+    }
+    return true
+  } finally {
+    projectOptionsLoading.value = false
   }
 }
 
-// ==================== 虚拟Key相关数据 ====================
+async function fetchMemberOptions() {
+  if (!hasTeamContext.value) {
+    memberOptions.value = []
+    return true
+  }
+  memberOptionsLoading.value = true
+  try {
+    const res = await getTeamMembers(teamContext.teamId)
+    memberOptions.value = res.code === 200 && Array.isArray(res.data) ? res.data : []
+    return true
+  } catch (error) {
+    memberOptions.value = []
+    console.warn('获取团队成员失败:', error)
+    if (error?.response?.status === 403 || error?.response?.status === 401) {
+      teamContextBlockedReason.value = '当前账号无权使用这个团队上下文，请从团队管理页重新进入。'
+      return false
+    }
+    return true
+  } finally {
+    memberOptionsLoading.value = false
+  }
+}
+
+async function fetchChannelOptions(groupId) {
+  if (!groupId) {
+    channelOptions.value = []
+    virtualFormData.channelId = null
+    return
+  }
+
+  channelOptionsLoading.value = true
+  try {
+    const res = await getModelGroupChannels(groupId)
+    if (res.code === 200 && res.data) {
+      channelOptions.value = res.data
+      if (channelOptions.value.length === 1) {
+        virtualFormData.channelId = channelOptions.value[0].id
+      } else if (!channelOptions.value.some(channel => channel.id === virtualFormData.channelId)) {
+        virtualFormData.channelId = null
+      }
+    } else {
+      channelOptions.value = []
+      virtualFormData.channelId = null
+      ElMessage.error(res.message || '获取可用渠道失败')
+    }
+  } catch (e) {
+    channelOptions.value = []
+    virtualFormData.channelId = null
+    console.warn('获取可用渠道失败:', e)
+  } finally {
+    channelOptionsLoading.value = false
+  }
+}
+
+function syncTeamContextFromRoute() {
+  const parsedTeamId = Number(route.query.teamId)
+  const nextTeamId = Number.isFinite(parsedTeamId) && parsedTeamId > 0 ? parsedTeamId : null
+  const teamChanged = teamContext.teamId !== nextTeamId
+  teamContext.teamId = nextTeamId
+  teamContext.teamName = typeof route.query.teamName === 'string' ? route.query.teamName : ''
+  teamContextReady.value = false
+  teamContextBlockedReason.value = ''
+  if (teamChanged) {
+    resetVirtualFormData()
+  }
+  if (!route.query.autoCreate || route.query.autoCreate !== '1') {
+    teamContext.autoCreateHandled = false
+  }
+}
+
+async function ensureTeamContextAccess() {
+  if (!hasTeamContext.value) {
+    teamContextReady.value = false
+    teamContextBlockedReason.value = ''
+    return false
+  }
+  teamContextBlockedReason.value = ''
+  const [projectOk, memberOk] = await Promise.all([
+    fetchProjectOptions(),
+    fetchMemberOptions()
+  ])
+  teamContextReady.value = projectOk && memberOk && !teamContextBlockedReason.value
+  if (!teamContextReady.value) {
+    virtualDialogVisible.value = false
+    memberOptions.value = []
+    projectOptions.value = []
+  }
+  return teamContextReady.value
+}
+
+function maybeAutoOpenCreate() {
+  if (!canManageTeamContext.value || teamContext.autoCreateHandled || route.query.autoCreate !== '1') {
+    return
+  }
+  teamContext.autoCreateHandled = true
+  handleAdd()
+  router.replace({
+    path: route.path,
+    query: {
+      teamId: String(teamContext.teamId),
+      teamName: teamContext.teamName
+    }
+  })
+}
 
 const virtualTableData = ref([])
 const virtualLoading = ref(false)
@@ -377,14 +604,21 @@ const virtualSubmitLoading = ref(false)
 const virtualFormRef = ref()
 const virtualFormData = reactive({
   keyName: '',
+  userId: null,
+  projectId: null,
   quotaType: 'token',
   quotaLimit: 100000,
   rateLimitQpm: 60,
   rateLimitQpd: 0,
   expireTime: null,
   allowedModels: '',
-  allowedGroupIds: [],
+  selectedGroupId: null,
+  channelId: null,
   remark: ''
+})
+const legacyEditState = reactive({
+  missingChannel: false,
+  multipleGroups: false
 })
 
 const virtualFormRules = {
@@ -392,24 +626,44 @@ const virtualFormRules = {
     { required: true, message: '请输入Key名称', trigger: 'blur' },
     { min: 2, max: 100, message: '长度在2到100个字符', trigger: 'blur' }
   ],
+  userId: [
+    { required: true, message: '请选择发放成员', trigger: 'change' }
+  ],
+  projectId: [
+    { required: true, message: '请选择所属项目', trigger: 'change' }
+  ],
   quotaType: [
     { required: true, message: '请选择额度类型', trigger: 'change' }
   ],
   quotaLimit: [
     { required: true, message: '请输入额度上限', trigger: 'blur' }
+  ],
+  selectedGroupId: [
+    { required: true, message: '请选择模型分组', trigger: 'change' }
+  ],
+  channelId: [
+    { required: true, message: '请选择路由渠道', trigger: 'change' }
   ]
 }
 
 let virtualSearchTimer = null
 
-// ==================== 生命周期 ====================
-
-onMounted(() => {
+onMounted(async () => {
+  syncTeamContextFromRoute()
   fetchVirtualKeyList()
   fetchModelGroups()
+  await ensureTeamContextAccess()
+  maybeAutoOpenCreate()
 })
 
-// ==================== 虚拟Key API方法 ====================
+watch(
+  () => [route.query.teamId, route.query.teamName, route.query.autoCreate],
+  async () => {
+    syncTeamContextFromRoute()
+    await ensureTeamContextAccess()
+    maybeAutoOpenCreate()
+  }
+)
 
 async function fetchVirtualKeyList() {
   virtualLoading.value = true
@@ -439,14 +693,37 @@ async function fetchVirtualKeyList() {
   }
 }
 
+function buildVirtualKeyPayload() {
+  return {
+    teamId: teamContext.teamId,
+    userId: virtualFormData.userId,
+    projectId: virtualFormData.projectId,
+    keyName: virtualFormData.keyName,
+    quotaType: virtualFormData.quotaType,
+    quotaLimit: virtualFormData.quotaLimit,
+    rateLimitQpm: virtualFormData.rateLimitQpm,
+    rateLimitQpd: virtualFormData.rateLimitQpd,
+    expireTime: virtualFormData.expireTime,
+    allowedModels: virtualFormData.allowedModels,
+    allowedGroupIds: virtualFormData.selectedGroupId ? [virtualFormData.selectedGroupId] : [],
+    channelId: virtualFormData.channelId,
+    remark: virtualFormData.remark
+  }
+}
+
 async function handleVirtualCreate() {
+  if (!hasTeamContext.value) {
+    ElMessage.warning('请从团队管理页进入后再创建 Key')
+    return
+  }
+  if (!canManageTeamContext.value) {
+    ElMessage.warning(teamContextBlockedReason.value || '当前账号无权使用这个团队上下文')
+    return
+  }
+
   virtualSubmitLoading.value = true
   try {
-    const data = {
-      ...virtualFormData,
-      userId: getCurrentUserId()
-    }
-    const res = await createVirtualKey(data)
+    const res = await createVirtualKey(buildVirtualKeyPayload())
 
     if (res.code === 200) {
       ElMessage.success('虚拟Key创建成功')
@@ -467,7 +744,7 @@ async function handleVirtualUpdate() {
 
   virtualSubmitLoading.value = true
   try {
-    const data = { ...virtualFormData }
+    const data = buildVirtualKeyPayload()
     const res = await updateVirtualKey(currentVirtualEditId.value, data)
 
     if (res.code === 200) {
@@ -502,9 +779,15 @@ async function handleVirtualDeleteAction(id) {
   }
 }
 
-// ==================== 虚拟Key事件处理 ====================
-
 function handleAdd() {
+  if (!hasTeamContext.value) {
+    ElMessage.warning('请从团队管理页进入后再创建 Key')
+    return
+  }
+  if (!canManageTeamContext.value) {
+    ElMessage.warning(teamContextBlockedReason.value || '当前账号无权使用这个团队上下文')
+    return
+  }
   isVirtualEdit.value = false
   currentVirtualEditId.value = null
   resetVirtualFormData()
@@ -542,24 +825,82 @@ function handleVirtualPageChange(val) {
   fetchVirtualKeyList()
 }
 
-function handleVirtualEdit(row) {
+async function handleVirtualEdit(row) {
   isVirtualEdit.value = true
   currentVirtualEditId.value = row.id
-  Object.assign(virtualFormData, {
-    keyName: row.keyName,
-    quotaType: row.quotaType,
-    quotaLimit: Number(row.quotaLimit),
-    rateLimitQpm: row.rateLimitQpm ?? 60,
-    rateLimitQpd: row.rateLimitQpd ?? 0,
-    expireTime: row.expireTime || null,
-    allowedModels: row.allowedModels || '',
-    allowedGroupIds: row.allowedGroupIds || [],
-    remark: row.remark || ''
-  })
-  virtualDialogVisible.value = true
+  resetVirtualFormData()
+
+  try {
+    const res = await getVirtualKeyDetail(row.id)
+    if (res.code !== 200 || !res.data) {
+      ElMessage.error(res.message || '获取虚拟Key详情失败')
+      return
+    }
+
+    const detail = res.data
+    const detailGroupIds = Array.isArray(detail.allowedGroupIds) ? detail.allowedGroupIds : []
+    const selectedGroupId = detailGroupIds[0] ?? null
+
+    teamContext.teamId = detail.teamId || teamContext.teamId
+    if (!teamContext.teamName && detail.teamName) {
+      teamContext.teamName = detail.teamName
+    }
+
+    Object.assign(virtualFormData, {
+      keyName: detail.keyName,
+      userId: detail.userId ?? null,
+      projectId: detail.projectId ?? null,
+      quotaType: detail.quotaType,
+      quotaLimit: Number(detail.quotaLimit),
+      rateLimitQpm: detail.rateLimitQpm ?? 60,
+      rateLimitQpd: detail.rateLimitQpd ?? 0,
+      expireTime: detail.expireTime || null,
+      allowedModels: detail.allowedModels || '',
+      selectedGroupId,
+      channelId: detail.channelId ?? null,
+      remark: detail.remark || ''
+    })
+
+    legacyEditState.missingChannel = !detail.channelId
+    legacyEditState.multipleGroups = detailGroupIds.length !== 1
+
+    if (legacyEditWarnings.value.length) {
+      ElMessage.warning(`历史数据需先修复：${legacyEditWarnings.value.join('，')}`)
+    }
+
+    if (selectedGroupId) {
+      await fetchChannelOptions(selectedGroupId)
+      if (detail.channelId && channelOptions.value.some(channel => channel.id === detail.channelId)) {
+        virtualFormData.channelId = detail.channelId
+      }
+    }
+
+    virtualDialogVisible.value = true
+  } catch (error) {
+    console.error('获取虚拟Key详情失败:', error)
+  }
+}
+
+async function handleGroupChange(groupId) {
+  virtualFormData.channelId = null
+  legacyEditState.multipleGroups = false
+  await fetchChannelOptions(groupId)
 }
 
 function handleVirtualSubmit() {
+  if (isVirtualEdit.value && legacyEditWarnings.value.length > 0) {
+    if (!virtualFormData.selectedGroupId) {
+      ElMessage.warning('请先将模型分组收敛为单选后再保存')
+      return
+    }
+    if (!virtualFormData.channelId) {
+      ElMessage.warning('请先补齐路由渠道后再保存')
+      return
+    }
+    legacyEditState.missingChannel = false
+    legacyEditState.multipleGroups = false
+  }
+
   virtualFormRef.value?.validate((valid) => {
     if (valid) {
       if (isVirtualEdit.value) {
@@ -630,20 +971,24 @@ async function handleVirtualStatusChange(row, newStatus) {
   }
 }
 
-// ==================== 工具方法 ====================
-
 function resetVirtualFormData() {
   Object.assign(virtualFormData, {
     keyName: '',
+    userId: null,
+    projectId: null,
     quotaType: 'token',
     quotaLimit: 100000,
     rateLimitQpm: 60,
     rateLimitQpd: 0,
     expireTime: null,
     allowedModels: '',
-    allowedGroupIds: [],
+    selectedGroupId: null,
+    channelId: null,
     remark: ''
   })
+  legacyEditState.missingChannel = false
+  legacyEditState.multipleGroups = false
+  channelOptions.value = []
   virtualFormRef.value?.resetFields()
 }
 
@@ -726,6 +1071,25 @@ function getQuotaTypeTagType(type) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.team-context-tip {
+  margin-top: 12px;
+  font-size: 13px;
+  color: rgba(248, 250, 252, 0.75);
+}
+
+.legacy-warning {
+  margin-bottom: 16px;
 }
 
 .glass-card {

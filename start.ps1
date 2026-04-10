@@ -1,21 +1,21 @@
-﻿﻿﻿﻿﻿﻿#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 <#
 .SYNOPSIS
-    AI调度中心 - 企业API Key管理系统 全能一键启动脚本 v3.0
+    AI调度中心 - 企业API Key管理系统 本地优先一键启动脚本 v3.1
 .DESCRIPTION
-    自动检测所有必要环境（Node.js/Java/Maven/Docker），
-    智能选择最佳启动方式（本地/Docker混合/纯Docker），
-    同时启动前后端服务，自动打开浏览器。
+    自动检测必要环境（Node.js/Java/Maven/Docker），
+    按当前项目架构启动系统：前后端本地开发、MySQL/Redis 按需用 Docker 补位，
+    在服务可用后自动打开浏览器。
 .NOTES
     支持的环境组合：
-    - 完整环境：Node.js + Java + Maven + MySQL + Redis（推荐）
-    - 开发环境：Node.js + Java + Maven + Docker（MySQL/Redis用Docker补充）
-    - 最小环境：仅 Docker Desktop（全部容器化运行）
+    - 推荐开发模式：Node.js + Java + Maven，本地运行前后端
+    - 基础设施补位：MySQL / Redis 缺失时使用 Docker 自动拉起
+    - 后端容器模式：仅在本地 Java/Maven 不可用时兜底使用
 #>
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$Host.UI.RawUI.WindowTitle = "AI调度Center - Full Startup Script v3.0"
+$Host.UI.RawUI.WindowTitle = "AI调度Center - Local-first Startup v3.1"
 
 $Green = "Green"
 $Red = "Red"
@@ -164,16 +164,24 @@ function Invoke-DockerMySQL {
     Write-Output $output
 }
 
-function Import-DockerSQLFile {
-    param([string]$FilePath, [string]$Database)
-    $content = Get-Content $FilePath -Raw -Encoding UTF8
-    $tempName = "import_$([guid]::NewGuid().ToString('N').Substring(0,8)).sql"
-    $tempPath = Join-Path $env:TEMP $tempName
-    Set-Content -Path $tempPath -Value $content -Encoding UTF8
-    & docker cp $tempPath aikey-mysql:/tmp/import.sql 2>&1 | Out-Null
-    & docker exec aikey-mysql mysql -uroot -proot $Database -e "SOURCE /tmp/import.sql" 2>&1 | Out-Null
-    Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
-    return $LASTEXITCODE
+function Test-BackendHealth {
+    param([int]$Port, [int]$MaxWait = 90)
+    $healthUrl = "http://localhost:$Port/actuator/health"
+    Write-Host "    Waiting for backend health..." -NoNewline -ForegroundColor $DarkGray
+    for ($i = 0; $i -lt $MaxWait; $i++) {
+        Start-Sleep -Seconds 1
+        try {
+            $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+                Write-Host " [OK]" -ForegroundColor $Green
+                return $true
+            }
+        } catch {
+        }
+        Write-Host "." -NoNewline -ForegroundColor $DarkGray
+    }
+    Write-Host " [TIMEOUT]" -ForegroundColor $Yellow
+    return $false
 }
 
 function Install-NodeDependencies {
@@ -221,17 +229,28 @@ $BackendDir = Join-Path $ProjectRoot "backend"
 $FrontendDir = Join-Path $ProjectRoot "frontend"
 $DbScriptsDir = Join-Path $BackendDir "src\main\resources\db"
 
+$BackendPort = 8080
+$FrontendPort = 5173
+$MySqlPort = 3306
+$RedisPort = 6379
+$MySqlContainerName = "aikey-mysql"
+$RedisContainerName = "aikey-redis"
+$BackendContainerName = "aikey-backend"
+
 $useDockerForMySQL = $false
 $useDockerForRedis = $false
 $useDockerForBackend = $false
 $frontendProcess = $null
 $backendProcess = $null
+$reuseBackend = $false
+$reuseFrontend = $false
+$PortConflictAction = $env:AIKEY_PORT_CONFLICT_ACTION
 
 Clear-Host
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor $Cyan
-Write-Host "  AI调度中心 - 企业API Key管理系统 v3.0" -ForegroundColor $Cyan
-Write-Host "  Full Auto Startup (Frontend + Backend)" -ForegroundColor $DarkGray
+Write-Host "  AI调度中心 - 企业API Key管理系统 v3.1" -ForegroundColor $Cyan
+Write-Host "  Local-first startup (Frontend + Backend + Docker infra)" -ForegroundColor $DarkGray
 Write-Host "================================================================" -ForegroundColor $Cyan
 
 $totalSteps = 9
@@ -336,17 +355,17 @@ if (-not $canRunLocalBackend -and $canUseDocker) {
     $useDockerForBackend = $true
 }
 
-Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking infrastructure (MySQL on port 3306)..."
+Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking infrastructure (MySQL on port $MySqlPort)..."
 
-if (Test-Port -Port 3306) {
-    Write-SubStep -Message "MySQL port 3306" -Status "OK"
+if (Test-Port -Port $MySqlPort) {
+    Write-SubStep -Message "MySQL port $MySqlPort" -Status "OK"
 } elseif ($canUseDocker) {
     Write-SubStep -Message "MySQL not running, starting via Docker..."
 
     $mysqlResult = Start-DockerContainer `
-        -Name "aikey-mysql" `
+        -Name $MySqlContainerName `
         -Image "docker.1ms.run/mysql:8.0" `
-        -Ports @{ "3306" = "3306" } `
+        -Ports @{ "$MySqlPort" = "$MySqlPort" } `
         -EnvVars @{
             "MYSQL_ROOT_PASSWORD" = "root"
             "MYSQL_DATABASE" = "ai_key_management"
@@ -356,7 +375,7 @@ if (Test-Port -Port 3306) {
         } `
         -Volumes @{ "aikey-mysql-data" = "/var/lib/mysql" } `
         -Command "--character-set-server=utf8mb4", "--collation-server=utf8mb4_general_ci", "--default-authentication-plugin=mysql_native_password" `
-        -ReadyPort 3306 `
+        -ReadyPort $MySqlPort `
         -MaxWaitSeconds 90
 
     if ($mysqlResult) {
@@ -376,21 +395,21 @@ if (Test-Port -Port 3306) {
     exit 1
 }
 
-Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking infrastructure (Redis on port 6379)..."
+Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking infrastructure (Redis on port $RedisPort)..."
 
-if (Test-Port -Port 6379) {
-    Write-SubStep -Message "Redis port 6379" -Status "OK"
+if (Test-Port -Port $RedisPort) {
+    Write-SubStep -Message "Redis port $RedisPort" -Status "OK"
 } elseif ($canUseDocker) {
     Write-SubStep -Message "Redis not running, starting via Docker..."
 
     $redisResult = Start-DockerContainer `
-        -Name "aikey-redis" `
+        -Name $RedisContainerName `
         -Image "docker.1ms.run/redis:7-alpine" `
-        -Ports @{ "6379" = "6379" } `
+        -Ports @{ "$RedisPort" = "$RedisPort" } `
         -EnvVars @{} `
         -Volumes @{ "aikey-redis-data" = "/data" } `
         -Command "redis-server", "--appendonly=yes" `
-        -ReadyPort 6379 `
+        -ReadyPort $RedisPort `
         -MaxWaitSeconds 30
 
     if ($redisResult) {
@@ -403,49 +422,22 @@ if (Test-Port -Port 6379) {
     Write-SubStep -Message "Redis not running (optional, continuing)" -Status "WARN"
 }
 
-Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Initializing database..."
+Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking database readiness..."
 
 $schemaFile = Join-Path $DbScriptsDir "schema.sql"
 $dataFile = Join-Path $DbScriptsDir "data.sql"
 
-if (-not (Test-Path $schemaFile)) {
-    Write-Host "[ERROR] Schema file not found: $schemaFile" -ForegroundColor $Red
+if (-not (Test-Path $schemaFile) -or -not (Test-Path $dataFile)) {
+    Write-SubStep -Message "Database scripts missing" -Status "FAIL"
     Read-Host "Press Enter to exit"
     exit 1
 }
 
-if ($useDockerForMySQL) {
-    Write-SubStep -Message "Creating database (Docker MySQL)..."
-
-    Invoke-DockerMySQL "CREATE DATABASE IF NOT EXISTS ai_key_management DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
-
-    Write-SubStep -Message "Importing schema..."
-    $schemaResult = Import-DockerSQLFile -FilePath $schemaFile -Database "ai_key_management"
-
-    Write-SubStep -Message "Importing initial data..."
-    $dataResult = Import-DockerSQLFile -FilePath $dataFile -Database "ai_key_management"
-
-    Write-SubStep -Message "Database ready (admin/admin123)" -Status "OK"
-} elseif (Test-Command "mysql") {
-    Write-SubStep -Message "Creating database (local MySQL)..."
-
-    & mysql -u root -proot -e "CREATE DATABASE IF NOT EXISTS ai_key_management DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;" 2>$null | Out-Null
-
-    Write-SubStep -Message "Importing schema..."
-    Get-Content $schemaFile -Raw | & mysql -u root -proot ai_key_management 2>$null | Out-Null
-
-    Write-SubStep -Message "Importing initial data..."
-    Get-Content $dataFile -Raw | & mysql -u root -proot ai_key_management 2>$null | Out-Null
-
-    Write-SubStep -Message "Database ready (admin/admin123)" -Status "OK"
-} else {
-    Write-SubStep -Message "Cannot initialize DB automatically" -Status "WARN"
-    Write-Host "  Please run init-db.ps1 manually after MySQL is ready" -ForegroundColor $Cyan
-}
+Write-SubStep -Message "Using backend spring.sql.init for schema/data initialization" -Status "OK"
 
 Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking port availability..."
 
-$portsToCheck = @(8080, 5173)
+$portsToCheck = @($BackendPort, $FrontendPort)
 $portsOccupied = @{}
 
 foreach ($port in $portsToCheck) {
@@ -463,8 +455,12 @@ if ($portsOccupied.Count -gt 0) {
     Write-Host "  Some ports are in use. Options:" -ForegroundColor $Cyan
     Write-Host "    Y - Terminate conflicting processes automatically" -ForegroundColor $White
     Write-Host "    N - Exit and free ports manually" -ForegroundColor $White
+    Write-Host "    S - Reuse the running services and skip starting them again" -ForegroundColor $White
 
-    $choice = Read-Host "  Your choice (Y/N)"
+    $choice = $PortConflictAction
+    if (-not $choice) {
+        $choice = Read-Host "  Your choice (Y/N/S)"
+    }
 
     if ($choice -eq 'Y' -or $choice -eq 'y') {
         foreach ($entry in $portsOccupied.GetEnumerator()) {
@@ -481,6 +477,14 @@ if ($portsOccupied.Count -gt 0) {
                 exit 1
             }
         }
+    } elseif ($choice -eq 'S' -or $choice -eq 's') {
+        Write-SubStep -Message "Will reuse occupied frontend/backend ports where possible" -Status "WARN"
+        if ($portsOccupied.ContainsKey($BackendPort)) {
+            $reuseBackend = $true
+        }
+        if ($portsOccupied.ContainsKey($FrontendPort)) {
+            $reuseFrontend = $true
+        }
     } else {
         Write-Host "  Please free the ports and try again." -ForegroundColor $Yellow
         Read-Host "Press Enter to exit"
@@ -490,7 +494,16 @@ if ($portsOccupied.Count -gt 0) {
 
 Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Starting backend service..."
 
-if ($useDockerForBackend) {
+if ($reuseBackend) {
+    Write-SubStep -Message "Reusing backend already running on port $BackendPort" -Status "OK"
+    $backendStarted = $true
+    $backendHealthy = Test-BackendHealth -Port $BackendPort -MaxWait 15
+    if (-not $backendHealthy) {
+        Write-SubStep -Message "Existing backend is reachable but health check failed" -Status "FAIL"
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+} elseif ($useDockerForBackend) {
     Write-SubStep -Message "Building and starting backend via Docker Compose..."
 
     Set-Location $ProjectRoot
@@ -521,13 +534,17 @@ if ($useDockerForBackend) {
     }
 
     Write-SubStep -Message "Waiting for backend to be ready..."
-    $backendStarted = Wait-ForPort -Port 8080 -MaxWait 120
+    $backendStarted = Wait-ForPort -Port $BackendPort -MaxWait 120
 
     if ($backendStarted) {
-        Write-SubStep -Message "Backend running in Docker (port 8080)" -Status "OK"
+        $backendHealthy = Test-BackendHealth -Port $BackendPort -MaxWait 30
+    }
+
+    if ($backendStarted -and $backendHealthy) {
+        Write-SubStep -Message "Backend running in Docker (port $BackendPort)" -Status "OK"
     } else {
-        Write-SubStep -Message "Backend did not start in time" -Status "FAIL"
-        Write-Host "    Check with: docker logs aikey-backend" -ForegroundColor $Yellow
+        Write-SubStep -Message "Backend did not become healthy in time" -Status "FAIL"
+        Write-Host "    Check with: docker logs $BackendContainerName" -ForegroundColor $Yellow
         Read-Host "Press Enter to exit"
         exit 1
     }
@@ -546,15 +563,20 @@ if ($useDockerForBackend) {
     Write-SubStep -Message "Compile" -Status "OK"
 
     Write-SubStep -Message "Starting Spring Boot application..."
-    $backendProcess = Start-Process -FilePath "mvn" -ArgumentList "spring-boot:run" -PassThru -NoNewWindow -WorkingDirectory $BackendDir
+    $backendArgs = @("spring-boot:run", "-Dspring-boot.run.jvmArguments=-Dserver.port=$BackendPort")
+    $backendProcess = Start-Process -FilePath "mvn" -ArgumentList $backendArgs -PassThru -NoNewWindow -WorkingDirectory $BackendDir
 
     Write-SubStep -Message "Waiting for backend to start..."
-    $backendStarted = Wait-ForPort -Port 8080 -MaxWait 90
+    $backendStarted = Wait-ForPort -Port $BackendPort -MaxWait 90
 
     if ($backendStarted) {
-        Write-SubStep -Message "Backend started successfully (port 8080)" -Status "OK"
+        $backendHealthy = Test-BackendHealth -Port $BackendPort -MaxWait 30
+    }
+
+    if ($backendStarted -and $backendHealthy) {
+        Write-SubStep -Message "Backend started successfully (port $BackendPort)" -Status "OK"
     } else {
-        Write-SubStep -Message "Backend did not start in time" -Status "FAIL"
+        Write-SubStep -Message "Backend did not become healthy in time" -Status "FAIL"
         if ($backendProcess) { Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue }
         Read-Host "Press Enter to exit"
         exit 1
@@ -563,7 +585,9 @@ if ($useDockerForBackend) {
 
 Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Starting frontend service..."
 
-if ($canRunFrontend) {
+if ($reuseFrontend) {
+    Write-SubStep -Message "Reusing frontend already running on port $FrontendPort" -Status "OK"
+} elseif ($canRunFrontend) {
     Write-SubStep -Message "Checking/installing Node.js dependencies..."
 
     if (-not (Install-NodeDependencies -FrontendDir $FrontendDir)) {
@@ -583,7 +607,7 @@ if ($canRunFrontend) {
 
     for ($i = 0; $i -lt $maxFrontendWait; $i++) {
         Start-Sleep -Seconds 1
-        if (Test-Port -Port 5173) {
+        if (Test-Port -Port $FrontendPort) {
             $frontendStarted = $true
             break
         }
@@ -593,9 +617,9 @@ if ($canRunFrontend) {
     Write-Host ""
 
     if ($frontendStarted) {
-        Write-SubStep -Message "Frontend started (http://localhost:5173)" -Status "OK"
+        Write-SubStep -Message "Frontend started (http://localhost:$FrontendPort)" -Status "OK"
     } else {
-        Write-SubStep -Message "Frontend may still be starting (check http://localhost:5173)" -Status "WARN"
+        Write-SubStep -Message "Frontend may still be starting (check http://localhost:$FrontendPort)" -Status "WARN"
     }
 } else {
     Write-SubStep -Message "Node.js not available, skipping frontend" -Status "SKIP"
@@ -606,11 +630,11 @@ Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Opening browser..
 Start-Sleep -Seconds 2
 
 if ($canRunFrontend) {
-    Start-Process "http://localhost:5173"
-    $browserUrl = "http://localhost:5173"
+    Start-Process "http://localhost:$FrontendPort"
+    $browserUrl = "http://localhost:$FrontendPort"
 } else {
-    Start-Process "http://localhost:8080/swagger-ui/index.html"
-    $browserUrl = "http://localhost:8080/swagger-ui/index.html"
+    Start-Process "http://localhost:$BackendPort/swagger-ui/index.html"
+    $browserUrl = "http://localhost:$BackendPort/swagger-ui/index.html"
 }
 
 Write-SubStep -Message "Browser opened: $browserUrl" -Status "OK"
@@ -625,11 +649,11 @@ Write-Host ""
 Write-Host "  Access Information:" -ForegroundColor $Cyan
 Write-Host "  -------------------" -ForegroundColor $Cyan
 if ($canRunFrontend) {
-    Write-Host "  Frontend (Main UI):  http://localhost:5173" -ForegroundColor $Green
+    Write-Host "  Frontend (Main UI):  http://localhost:$FrontendPort" -ForegroundColor $Green
 }
-Write-Host "  Backend API:         http://localhost:8080" -ForegroundColor $Green
-Write-Host "  Swagger Docs:         http://localhost:8080/swagger-ui/index.html" -ForegroundColor $Cyan
-Write-Host "  Health Check:         http://localhost:8080/api/health" -ForegroundColor $Cyan
+Write-Host "  Backend API:         http://localhost:$BackendPort" -ForegroundColor $Green
+Write-Host "  Swagger Docs:         http://localhost:$BackendPort/swagger-ui/index.html" -ForegroundColor $Cyan
+Write-Host "  Health Check:         http://localhost:$BackendPort/api/health" -ForegroundColor $Cyan
 Write-Host ""
 Write-Host "  Default Account:" -ForegroundColor $Cyan
 Write-Host "  Username: admin      Password: admin123" -ForegroundColor $Yellow
@@ -665,8 +689,8 @@ try {
     while ($true) {
         Start-Sleep -Seconds 1
 
-        $backendAlive = Test-Port -Port 8080
-        $frontendAlive = if ($canRunFrontend) { Test-Port -Port 5173 } else { $true }
+        $backendAlive = Test-Port -Port $BackendPort
+        $frontendAlive = if ($canRunFrontend) { Test-Port -Port $FrontendPort } else { $true }
 
         if (-not $backendAlive) {
             Write-Host "`n[WARN] Backend service stopped unexpectedly!" -ForegroundColor $Red

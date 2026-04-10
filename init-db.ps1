@@ -34,9 +34,6 @@ function Test-Command {
 
 # 获取项目路径
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DbScriptsDir = Join-Path $ProjectRoot "backend\src\main\resources\db"
-$SchemaFile = Join-Path $DbScriptsDir "schema.sql"
-$DataFile = Join-Path $DbScriptsDir "data.sql"
 
 Clear-Host
 Write-Header "AI调度中心 - 数据库初始化工具"
@@ -77,7 +74,7 @@ switch ($choice) {
         }
         
         Write-Host "`n[1/4] 删除旧数据库..." -NoNewline
-        $dropResult = & mysql -u root -proot -e "DROP DATABASE IF EXISTS ai_key_management;" 2>&1
+        & mysql -u root -proot -e "DROP DATABASE IF EXISTS ai_key_management;" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host " ✅ 旧数据库已删除" -ForegroundColor $Green
         }
@@ -88,7 +85,7 @@ switch ($choice) {
         }
         
         Write-Host "[2/4] 创建新数据库..." -NoNewline
-        $createResult = & mysql -u root -proot -e "CREATE DATABASE ai_key_management DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;" 2>&1
+        & mysql -u root -proot -e "CREATE DATABASE ai_key_management DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host " ✅ 数据库 ai_key_management 已创建" -ForegroundColor $Green
         }
@@ -98,27 +95,18 @@ switch ($choice) {
             exit 1
         }
         
-        Write-Host "[3/4] 导入表结构..." -NoNewline
-        $schemaResult = Get-Content $SchemaFile -Raw | & mysql -u root -proot ai_key_management 2>&1
+        Write-Host "[3/4] 执行 Flyway 迁移..." -NoNewline
+        & mvn -f "$ProjectRoot\backend\pom.xml" flyway:migrate 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host " ✅ 表结构导入完成（18张表）" -ForegroundColor $Green
+            Write-Host " ✅ Flyway 迁移完成" -ForegroundColor $Green
         }
         else {
-            Write-Host " ❌ 表结构导入失败" -ForegroundColor $Red
+            Write-Host " ❌ Flyway 迁移失败，请检查数据库连接和迁移脚本" -ForegroundColor $Red
             Read-Host "按 Enter 键退出"
             exit 1
         }
-        
-        Write-Host "[4/4] 导入初始数据..." -NoNewline
-        $dataResult = Get-Content $DataFile -Raw | & mysql -u root -proot ai_key_management 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host " ✅ 初始数据导入完成" -ForegroundColor $Green
-        }
-        else {
-            Write-Host " ❌ 初始数据导入失败" -ForegroundColor $Red
-            Read-Host "按 Enter 键退出"
-            exit 1
-        }
+
+        Write-Host "[4/4] 启动时将由 Flyway 负责表结构与初始数据" -ForegroundColor $Green
         
         Write-Host "`n════════════════════════════════════════════════════════════" -ForegroundColor $Cyan
         Write-Host "  ✅ 数据库完整初始化成功！" -ForegroundColor $Green
@@ -129,7 +117,7 @@ switch ($choice) {
     "2" {
         # 仅导入表结构
         Write-Host "`n[1/2] 导入表结构..." -NoNewline
-        $schemaResult = Get-Content $SchemaFile -Raw | & mysql -u root -proot ai_key_management 2>&1
+        & mvn -f "$ProjectRoot\backend\pom.xml" flyway:migrate 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host " ✅ 表结构导入完成" -ForegroundColor $Green
         }

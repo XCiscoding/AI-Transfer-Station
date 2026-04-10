@@ -1,10 +1,11 @@
 package com.aikey.service;
 
+import com.aikey.dto.channel.ChannelVO;
 import com.aikey.dto.common.PageResult;
 import com.aikey.dto.modelgroup.ModelGroupCreateRequest;
 import com.aikey.dto.modelgroup.ModelGroupUpdateRequest;
 import com.aikey.dto.modelgroup.ModelGroupVO;
-import com.aikey.entity.Model;
+import com.aikey.entity.Channel;
 import com.aikey.entity.ModelGroup;
 import com.aikey.exception.BusinessException;
 import com.aikey.repository.ModelGroupRepository;
@@ -23,7 +24,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -141,6 +144,44 @@ public class ModelGroupService {
                 .stream()
                 .map(this::convertToVO)
                 .collect(Collectors.toList());
+    }
+
+    public List<ChannelVO> listChannelsByGroupId(Long groupId) {
+        ModelGroup group = modelGroupRepository.findByIdAndDeleted(groupId, 0)
+                .orElseThrow(() -> new BusinessException("模型分组不存在：" + groupId));
+
+        List<Long> modelIds = parseIds(group.getModelIds());
+        if (modelIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<Long, ChannelVO> channelMap = new LinkedHashMap<>();
+        modelRepository.findAllById(modelIds).forEach(model -> {
+            if (model == null || model.getDeleted() == 1 || model.getStatus() != 1) {
+                return;
+            }
+            Channel channel = model.getChannel();
+            if (channel == null || channel.getDeleted() == 1 || channel.getStatus() != 1) {
+                return;
+            }
+            if (channel.getHealthStatus() != null && channel.getHealthStatus() != 1) {
+                return;
+            }
+            channelMap.putIfAbsent(channel.getId(), ChannelVO.builder()
+                    .id(channel.getId())
+                    .channelName(channel.getChannelName())
+                    .channelCode(channel.getChannelCode())
+                    .channelType(channel.getChannelType())
+                    .baseUrl(channel.getBaseUrl())
+                    .weight(channel.getWeight())
+                    .priority(channel.getPriority())
+                    .status(channel.getStatus())
+                    .healthStatus(channel.getHealthStatus())
+                    .createdAt(channel.getCreatedAt())
+                    .build());
+        });
+
+        return new ArrayList<>(channelMap.values());
     }
 
     // ===== 工具：转 VO =====

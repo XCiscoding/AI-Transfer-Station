@@ -2,6 +2,7 @@ package com.aikey.controller;
 
 import com.aikey.dto.common.PageResult;
 import com.aikey.dto.common.Result;
+import com.aikey.dto.modelgroup.ModelGroupVO;
 import com.aikey.dto.team.TeamCreateRequest;
 import com.aikey.dto.team.TeamUpdateRequest;
 import com.aikey.dto.team.TeamVO;
@@ -11,6 +12,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/teams")
@@ -27,6 +30,12 @@ public class TeamController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String keyword) {
         return Result.success(teamService.listTeams(page, size, keyword));
+    }
+
+    @GetMapping("/{id}/model-groups")
+    @Operation(summary = "获取团队可用模型分组")
+    public Result<List<ModelGroupVO>> getAllowedModelGroups(@PathVariable Long id) {
+        return Result.success(teamService.getAllowedModelGroups(id));
     }
 
     @PostMapping

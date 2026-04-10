@@ -1,5 +1,6 @@
 package com.aikey.dto.team;
 
+import com.aikey.dto.modelgroup.ModelGroupVO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -7,6 +8,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @Builder
@@ -26,5 +28,7 @@ public class TeamVO {
     private BigDecimal quotaRemaining;
     private BigDecimal quotaWeight;
     private Integer status;
+    private List<Long> allowedGroupIds;
+    private List<ModelGroupVO> allowedGroups;
     private LocalDateTime createdAt;
 }

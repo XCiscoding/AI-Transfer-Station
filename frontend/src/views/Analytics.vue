@@ -32,8 +32,11 @@
           </el-select>
         </div>
         <div class="dimension-actions">
-          <el-button type="primary" class="dim-query-btn" @click="handleDimensionQuery">查询</el-button>
+          <el-button type="primary" class="dim-query-btn" :disabled="needsScopedSelection && !dimensionSecondValue" @click="handleDimensionQuery">查询</el-button>
         </div>
+      </div>
+      <div v-if="dimensionBlockedReason" class="dimension-tip">
+        {{ dimensionBlockedReason }}
       </div>
     </div>
 
@@ -292,10 +295,11 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useThemeStore } from '@/stores/theme.js'
 import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
+import { getUserInfo } from '@/api/auth'
 
 export default {
   name: 'Analytics',
@@ -309,6 +313,11 @@ export default {
     const dimensionSecondValue = ref(1)
     const dimensionList = ref([])
     const dimensionListLoading = ref(false)
+    const currentUser = ref(null)
+    const dimensionBlockedReason = ref('')
+
+    const isSuperAdmin = computed(() => Boolean(currentUser.value?.isSuperAdmin || currentUser.value?.roles?.includes('SUPER_ADMIN')))
+    const needsScopedSelection = computed(() => dimension.value !== 'personal')
 
     const dimensionSecondLabel = computed(() => {
       if (dimension.value === 'personal') return '用户'
@@ -316,8 +325,18 @@ export default {
       return '项目'
     })
 
+    const fetchCurrentUser = async () => {
+      try {
+        const res = await getUserInfo()
+        currentUser.value = res.code === 200 ? res.data : null
+      } catch {
+        currentUser.value = null
+      }
+    }
+
     const fetchDimensionList = async () => {
       dimensionListLoading.value = true
+      dimensionBlockedReason.value = ''
       try {
         if (dimension.value === 'personal') {
           dimensionList.value = []
@@ -330,12 +349,21 @@ export default {
         if (res.code === 200) {
           const raw = res.data?.records || res.data?.list || res.data || []
           dimensionList.value = raw
-          if (raw.length > 0) {
-            dimensionSecondValue.value = raw[0].id
+          dimensionSecondValue.value = raw.length > 0 ? raw[0].id : null
+          if (!raw.length) {
+            dimensionBlockedReason.value = dimension.value === 'team'
+              ? '当前账号没有可分析的团队数据。'
+              : '当前账号没有可分析的项目数据。'
           }
         }
       } catch (e) {
         dimensionList.value = []
+        dimensionSecondValue.value = null
+        if (e?.response?.status === 401 || e?.response?.status === 403) {
+          dimensionBlockedReason.value = dimension.value === 'team'
+            ? '当前账号无权查看团队维度数据。'
+            : '当前账号无权查看项目维度数据。'
+        }
       } finally {
         dimensionListLoading.value = false
       }
@@ -347,6 +375,14 @@ export default {
     }
 
     const handleDimensionQuery = () => {
+      if (dimensionBlockedReason.value) {
+        ElMessage.warning(dimensionBlockedReason.value)
+        return
+      }
+      if (needsScopedSelection.value && !dimensionSecondValue.value) {
+        ElMessage.warning(`请先选择${dimensionSecondLabel.value}`)
+        return
+      }
       const dimLabel = { personal: '个人', team: '团队', project: '项目' }[dimension.value] || dimension.value
       ElMessage.success(`已切换到${dimLabel}维度，数据看板已更新`)
     }
@@ -408,8 +444,13 @@ export default {
       return colors[index] || '#94A3B8'
     }
 
-    onMounted(() => {
+    onMounted(async () => {
       themeStore.initTheme()
+      await fetchCurrentUser()
+      fetchDimensionList()
+    })
+
+    watch(dimension, () => {
       fetchDimensionList()
     })
 
@@ -429,6 +470,8 @@ export default {
       dimensionSecondLabel,
       dimensionList,
       dimensionListLoading,
+      dimensionBlockedReason,
+      needsScopedSelection,
       handleDimensionChange,
       handleDimensionQuery
     }

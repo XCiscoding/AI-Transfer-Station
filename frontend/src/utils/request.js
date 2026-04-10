@@ -29,6 +29,9 @@ request.interceptors.response.use(
       ElMessage.error(res.message || '请求失败')
       if (res.code === 401) {
         localStorage.removeItem('token')
+        localStorage.removeItem('roles')
+        localStorage.removeItem('username')
+        localStorage.removeItem('userInfo')
         window.location.href = '/login'
       }
       return Promise.reject(new Error(res.message || '请求失败'))
@@ -42,6 +45,9 @@ request.interceptors.response.use(
         case 401:
           ElMessage.error('未授权，请重新登录')
           localStorage.removeItem('token')
+          localStorage.removeItem('roles')
+          localStorage.removeItem('username')
+          localStorage.removeItem('userInfo')
           localStorage.removeItem('loginTime')
           window.location.href = '/login'
           break

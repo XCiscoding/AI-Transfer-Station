@@ -60,6 +60,9 @@ public class Team {
     @Column(name = "quota_weight", nullable = false)
     private BigDecimal quotaWeight = BigDecimal.ONE;
 
+    @Column(name = "allowed_group_ids", length = 2000)
+    private String allowedGroupIds;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

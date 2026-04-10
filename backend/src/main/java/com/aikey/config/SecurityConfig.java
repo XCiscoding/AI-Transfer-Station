@@ -140,10 +140,12 @@ public class SecurityConfig {
             "http://localhost:5175",  // Vite备选端口
             "http://localhost:3000",  // React默认端口
             "http://localhost:8081",  // 其他可能端口
+            "http://localhost:4173",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:5174",
             "http://127.0.0.1:5175",
-            "http://127.0.0.1:3000"
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:4173"
         ));
         // 允许的HTTP方法
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));

@@ -18,11 +18,21 @@ CREATE TABLE IF NOT EXISTS `model_groups` (
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='模型分组表';
 
--- 2. virtual_keys 表新增 allowed_group_ids 字段
+-- 2. virtual_keys 表新增 allowed_group_ids 与 channel_id 字段
 ALTER TABLE `virtual_keys`
-  ADD COLUMN IF NOT EXISTS `allowed_group_ids` TEXT DEFAULT NULL COMMENT '允许的模型分组ID列表（JSON数组）';
+  ADD COLUMN IF NOT EXISTS `allowed_group_ids` TEXT DEFAULT NULL COMMENT '允许的模型分组ID列表（JSON数组）',
+  ADD COLUMN IF NOT EXISTS `channel_id` BIGINT DEFAULT NULL COMMENT '绑定渠道ID，为空表示自动调度';
 
--- 3. 确保 quota_transactions 表存在（使用 schema.sql 中的定义，这里加 IF NOT EXISTS）
+ALTER TABLE `virtual_keys`
+  ADD INDEX IF NOT EXISTS `idx_channel_id` (`channel_id`);
+
+ALTER TABLE `virtual_keys`
+  ADD CONSTRAINT `fk_virtual_keys_channel`
+    FOREIGN KEY (`channel_id`) REFERENCES `channels` (`id`) ON DELETE SET NULL;
+
+-- 4. teams 表新增 allowed_group_ids 字段
+ALTER TABLE `teams`
+  ADD COLUMN IF NOT EXISTS `allowed_group_ids` TEXT DEFAULT NULL COMMENT '团队允许使用的模型分组ID列表（JSON数组）';
 CREATE TABLE IF NOT EXISTS `quota_transactions` (
   `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '流水ID',
   `user_id` BIGINT NOT NULL COMMENT '用户ID',

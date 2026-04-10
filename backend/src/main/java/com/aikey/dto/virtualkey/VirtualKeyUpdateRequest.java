@@ -35,9 +35,14 @@ public class VirtualKeyUpdateRequest {
     private String allowedModels;
 
     /**
-     * 允许的模型分组ID列表
+     * 允许的模型分组ID列表，仅允许单个分组
      */
     private List<Long> allowedGroupIds;
+
+    /**
+     * 指定路由渠道ID（可选）
+     */
+    private Long channelId;
 
     /**
      * 额度类型（token, count, amount）
