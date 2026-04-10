@@ -4,53 +4,6 @@
 version: '3.8'
 
 services:
-  # MySQL数据库
-  mysql:
-    image: mysql:8.0
-    container_name: aikey-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-AiKeyRoot2024!}
-      MYSQL_DATABASE: ai_key_management
-      MYSQL_USER: ${MYSQL_USER:-aikey}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-AiKeyUser2024!}
-      TZ: Asia/Shanghai
-    volumes:
-      - mysql-data:/var/lib/mysql
-      - ./init-db:/docker-entrypoint-initdb.d:ro
-    command: >
-      --character-set-server=utf8mb4
-      --collation-server=utf8mb4_unicode_ci
-      --character-set-client-handshake=FALSE
-      --init-connect='SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci'
-      --default-authentication-plugin=mysql_native_password
-      --max_connections=200
-      --innodb_buffer_pool_size=512M
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-AiKeyRoot2024!}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - aikey-network
-
-  # Redis缓存
-  redis:
-    image: redis:7-alpine
-    container_name: aikey-redis
-    restart: unless-stopped
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks:
-      - aikey-network
-
   # 后端应用
   backend:
     build:
@@ -58,21 +11,18 @@ services:
       dockerfile: deploy/Dockerfile.backend
     container_name: aikey-backend
     restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/ai_key_management?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-aikey}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-AiKeyUser2024!}
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:mysql://host.docker.internal:3306/ai_key_management?useUnicode=true&characterEncoding=UTF-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-root}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-root}
+      SPRING_DATA_REDIS_HOST: ${SPRING_DATA_REDIS_HOST:-host.docker.internal}
+      SPRING_DATA_REDIS_PORT: ${SPRING_DATA_REDIS_PORT:-6379}
       SPRING_PROFILES_ACTIVE: prod
       JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC"
       LOGGING_LEVEL_ROOT: WARN
       LOGGING_LEVEL_COM_AIKEY: INFO
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - aikey-network
 

@@ -7,11 +7,38 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_DIR: /root/AI-center/releases
+      APP_DIR: /root/AI-center/AI-Transfer-Station
+      RELEASE_NAME: release-${{ github.sha }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy to server via SSH
+      - name: Create release archive
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.claude' \
+            --exclude='node_modules' \
+            --exclude='frontend/node_modules' \
+            --exclude='backend/target' \
+            --exclude='.idea' \
+            --exclude='.vscode' \
+            -czf "${{ env.RELEASE_NAME }}.tar.gz" .
+
+      - name: Upload release archive
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: root
+          port: 22
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "${{ env.RELEASE_NAME }}.tar.gz"
+          target: ${{ env.RELEASE_DIR }}
+
+      - name: Deploy release on server
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -19,8 +46,29 @@ jobs:
           port: 22
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
-            cd /root/AI-center/AI-Transfer-Station
-            git stash push -u -m "auto-stash-before-deploy" || true
-            git pull origin main
-            docker compose -f deploy/docker-compose.all-in-one.yml down
+            set -e
+            mkdir -p "${{ env.RELEASE_DIR }}" "${{ env.APP_DIR }}"
+            cd "${{ env.RELEASE_DIR }}"
+            rm -rf "${{ env.RELEASE_NAME }}"
+            mkdir -p "${{ env.RELEASE_NAME }}"
+            tar -xzf "${{ env.RELEASE_NAME }}.tar.gz" -C "${{ env.RELEASE_NAME }}"
+
+            if [ -f "${{ env.APP_DIR }}/deploy/.env" ]; then
+              cp "${{ env.APP_DIR }}/deploy/.env" "${{ env.RELEASE_NAME }}/deploy/.env"
+            elif [ -f "${{ env.RELEASE_NAME }}/deploy/.env.example" ]; then
+              cp "${{ env.RELEASE_NAME }}/deploy/.env.example" "${{ env.RELEASE_NAME }}/deploy/.env"
+            fi
+
+            if [ -d "${{ env.APP_DIR }}/deploy" ]; then
+              cd "${{ env.APP_DIR }}"
+              docker compose -f deploy/docker-compose.all-in-one.yml down || true
+            fi
+
+            rm -rf "${{ env.APP_DIR }}"
+            mv "${{ env.RELEASE_NAME }}" "${{ env.APP_DIR }}"
+            cd "${{ env.APP_DIR }}"
+
             docker compose -f deploy/docker-compose.all-in-one.yml up -d --build
+            docker compose -f deploy/docker-compose.all-in-one.yml ps
+            curl -I http://127.0.0.1:8083
+            curl http://127.0.0.1:8083/api/health
