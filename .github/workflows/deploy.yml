@@ -62,7 +62,7 @@ jobs:
               echo "Using release archive: ${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
               tar -xzf "${{ env.RELEASE_NAME }}.tar.gz" -C "${{ env.RELEASE_NAME }}"
             else
-              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1 || true)
+              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1 | tr -d '\r' || true)
 
               if [ -z "$ARCHIVE_PATH" ]; then
                 echo "Release archive not found under ${{ env.RELEASE_DIR }}"
@@ -70,7 +70,8 @@ jobs:
                 exit 1
               fi
 
-              echo "Using release archive: $ARCHIVE_PATH"
+              printf 'Using release archive: [%s]\n' "$ARCHIVE_PATH"
+              ls -l "$ARCHIVE_PATH"
               tar -xzf "$ARCHIVE_PATH" -C "${{ env.RELEASE_NAME }}"
             fi
 
