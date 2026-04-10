@@ -54,26 +54,25 @@ jobs:
           script: |
             set -e
             mkdir -p "${{ env.RELEASE_DIR }}" "${{ env.APP_DIR }}"
-            ARCHIVE_PATH="${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
-
-            if [ ! -f "$ARCHIVE_PATH" ]; then
-              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1 || true)
-            fi
-
-            if [ -n "$ARCHIVE_PATH" ]; then
-              echo "Using release archive: $ARCHIVE_PATH"
-            fi
-
-            if [ -z "$ARCHIVE_PATH" ] || [ ! -f "$ARCHIVE_PATH" ]; then
-              echo "Release archive not found under ${{ env.RELEASE_DIR }}"
-              find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f
-              exit 1
-            fi
-
             cd "${{ env.RELEASE_DIR }}"
             rm -rf "${{ env.RELEASE_NAME }}"
             mkdir -p "${{ env.RELEASE_NAME }}"
-            tar -xzf "$ARCHIVE_PATH" -C "${{ env.RELEASE_NAME }}"
+
+            if [ -f "${{ env.RELEASE_NAME }}.tar.gz" ]; then
+              echo "Using release archive: ${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
+              tar -xzf "${{ env.RELEASE_NAME }}.tar.gz" -C "${{ env.RELEASE_NAME }}"
+            else
+              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1 || true)
+
+              if [ -z "$ARCHIVE_PATH" ]; then
+                echo "Release archive not found under ${{ env.RELEASE_DIR }}"
+                find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f
+                exit 1
+              fi
+
+              echo "Using release archive: $ARCHIVE_PATH"
+              tar -xzf "$ARCHIVE_PATH" -C "${{ env.RELEASE_NAME }}"
+            fi
 
             if [ -f "${{ env.APP_DIR }}/deploy/.env" ]; then
               cp "${{ env.APP_DIR }}/deploy/.env" "${{ env.RELEASE_NAME }}/deploy/.env"
