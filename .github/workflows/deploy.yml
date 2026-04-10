@@ -132,7 +132,7 @@ jobs:
             curl -I --max-time 15 http://127.0.0.1:8083
 
             echo "=== backend health via frontend route ==="
-            if ! curl --fail --show-error --max-time 20 http://127.0.0.1:8083/actuator/health; then
+            if ! curl --fail --show-error --max-time 20 http://127.0.0.1:8083/api/health; then
               echo "=== docker ps ==="
               docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
               echo "=== compose logs: backend ==="
