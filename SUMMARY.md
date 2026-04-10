@@ -363,6 +363,18 @@
      - 再从该临时路径执行 SCP 上传
      - 先确保 runner 打包稳定通过，后面才有资格继续验证服务器部署阶段
 
+10. **再往后暴露出的新失败点：SCP 上传后的落点与 SSH 解压预期不一致**
+   - tar 打包阶段修复后，workflow 继续往后执行，但 `Deploy release on server` 报错：
+     - `tar (child): release-<sha>.tar.gz: Cannot open: No such file or directory`
+   - 这说明问题已经推进到服务器阶段，而且当前失败不是“没上传”，而是：
+     - `scp-action` 实际落盘路径
+     - 与 ssh 脚本里写死的 `cd /root/AI-center/releases && tar -xzf release-<sha>.tar.gz`
+     - **两边并没有对齐**
+   - 当前正确修正方向应当是：
+     - 上传目标路径显式收口
+     - ssh 解压前先按文件名搜索 release 包真实落点
+     - 找不到时先打印 releases 目录文件清单，再失败退出
+
 #### Why this still did not get fixed successfully
 
 到现在还没修成功，真实原因不是单点故障，而是**连续几次判断都只解决了局部问题，没有真正拿到完整线上事实再闭环**。
@@ -425,10 +437,16 @@
 - 说明 workflow 甚至可能还没走到上传和服务器部署阶段，就已经在 runner 本地打包时失败
 - 当前正确修法也已经明确：**release 包不能再生成在 workspace 内，必须输出到 runner 临时目录，再交给后续上传步骤使用**
 
+再往后，在 tar 打包问题修掉之后，又暴露出新的后继失败点：
+- `Deploy release on server` 阶段解压时报：`release-<sha>.tar.gz: Cannot open: No such file or directory`
+- 说明 workflow 已经进入服务器阶段，但 `scp-action` 的真实上传落点和 ssh 脚本里假设的 release 包位置并不一致
+- 也就是说：**当前除了 runner 打包问题外，上传路径和服务器解压路径之间也存在断层**
+
 所以当前只能确认：
 - **新方案已经写了**
 - **但不能确认新方案已经在线上真实跑通**
 - **并且需要先修掉 runner 打包阶段的 tar 自包含失败问题，后面才谈得上继续验证上传和部署**
+- **在此基础上，还要把 scp 上传落点和服务器解压查找逻辑对齐，后面才能继续验证 compose 启动链路**
 
 ##### Root cause 5: 我在执行上也存在问题
 这次没有修成，我这里有几条明确失误，后续必须避免：
@@ -453,11 +471,12 @@
 到当前对话结束，能确认的结论只有这些：
 
 1. **GitHub Actions 自动部署仍未恢复成功**
-2. **之前至少出现过四类真实失败点：**
+2. **之前至少出现过五类真实失败点：**
    - 服务器脏工作区拦截 `git pull`
    - 服务器访问 GitHub HTTPS 不稳定（`Empty reply from server`）
    - 服务器已有服务/旧栈占用端口（至少出现过 3306 冲突）
    - GitHub runner 本地打包 release 时触发 `tar: .: file changed as we read it`
+   - release 包上传后，SSH 解压阶段找不到 `release-<sha>.tar.gz`
 3. **当前仓库里的“新部署方案”已经改成：**
    - 前端入口目标：`http://111.230.113.110:8083`
    - 正式部署栈：`deploy/docker-compose.all-in-one.yml`
@@ -476,6 +495,7 @@
    - Upload release archive
    - Deploy release on server
    - curl health check
+   - 特别是先确认 release 包在服务器上的真实落点，不能再默认它一定就在 `/root/AI-center/releases/release-<sha>.tar.gz`
 
 3. **再拿服务器运行态事实**
    先在服务器执行并留档：
@@ -494,7 +514,7 @@
 3. **最后才决定下一步改哪一层**
    - 如果失败在 tar 打包：先修 runner 打包逻辑
    - 如果失败在 SCP：修上传链路
-   - 如果失败在 SSH 解压：修 release 目录逻辑
+   - 如果失败在 SSH 解压：先核实 release 包实际落点，再修服务器解压路径和查找逻辑
    - 如果失败在 compose up：修容器/环境变量/端口
    - 如果失败在 curl health check：修服务启动顺序或后端可达性
 

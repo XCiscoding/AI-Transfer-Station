@@ -41,7 +41,8 @@ jobs:
           port: 22
           key: ${{ secrets.DEPLOY_KEY }}
           source: "${{ runner.temp }}/${{ env.RELEASE_NAME }}.tar.gz"
-          target: ${{ env.RELEASE_DIR }}
+          target: ${{ env.RELEASE_DIR }}/
+          strip_components: 3
 
       - name: Deploy release on server
         uses: appleboy/ssh-action@v1.0.0
@@ -53,10 +54,23 @@ jobs:
           script: |
             set -e
             mkdir -p "${{ env.RELEASE_DIR }}" "${{ env.APP_DIR }}"
+            ARCHIVE_PATH="${{ env.RELEASE_DIR }}/${{ env.RELEASE_NAME }}.tar.gz"
+
+            if [ ! -f "$ARCHIVE_PATH" ]; then
+              find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz"
+              ARCHIVE_PATH=$(find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f -name "${{ env.RELEASE_NAME }}.tar.gz" | head -n 1)
+            fi
+
+            if [ -z "$ARCHIVE_PATH" ] || [ ! -f "$ARCHIVE_PATH" ]; then
+              echo "Release archive not found under ${{ env.RELEASE_DIR }}"
+              find "${{ env.RELEASE_DIR }}" -maxdepth 5 -type f
+              exit 1
+            fi
+
             cd "${{ env.RELEASE_DIR }}"
             rm -rf "${{ env.RELEASE_NAME }}"
             mkdir -p "${{ env.RELEASE_NAME }}"
-            tar -xzf "${{ env.RELEASE_NAME }}.tar.gz" -C "${{ env.RELEASE_NAME }}"
+            tar -xzf "$ARCHIVE_PATH" -C "${{ env.RELEASE_NAME }}"
 
             if [ -f "${{ env.APP_DIR }}/deploy/.env" ]; then
               cp "${{ env.APP_DIR }}/deploy/.env" "${{ env.RELEASE_NAME }}/deploy/.env"
