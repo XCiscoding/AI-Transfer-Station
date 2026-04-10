@@ -24,6 +24,7 @@
 所以新的正式链路是：
 
 - GitHub Runner 打包源码
+- 发布包 tar.gz 生成在 runner 临时目录（而不是仓库根目录）
 - SCP 上传到服务器
 - 服务器解压发布包并执行 `docker compose -f deploy/docker-compose.all-in-one.yml up -d --build`
 
@@ -34,7 +35,7 @@
 `.github/workflows/deploy.yml` 现在应承担以下职责：
 
 1. checkout 代码
-2. 生成发布包 tar.gz
+2. 在 runner 临时目录生成发布包 tar.gz（不要写回仓库工作目录）
 3. 上传到服务器：`/root/AI-center/releases`
 4. 在服务器解压到新 release 目录
 5. 复制已有 `deploy/.env`

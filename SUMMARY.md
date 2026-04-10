@@ -353,6 +353,16 @@
    - 新提交：`2f3ec18 fix：启动！`
    - 但截至当前对话，用户反馈 GitHub Actions 页面仍显示部署失败，说明“新方案已经写进仓库”不等于“线上已被验证恢复”
 
+9. **最新确认的新失败点：release 打包 tar 步骤本身也会失败**
+   - 用户在 push 最近提交后，GitHub Actions 的 `Create release archive` 步骤报错：
+     - `tar: .: file changed as we read it`
+   - 这说明当前 workflow 在 runner 工作目录里“边生成 tar.gz，边把当前目录 `.` 作为打包源”时，输出文件落在被打包的同一棵目录树内，导致 tar 在读取过程中观察到目录状态变化并直接退出
+   - 这不是服务器部署阶段的问题，而是 **GitHub runner 本地打包阶段就已经失败**
+   - 当前已明确的正确修正方向不是继续压 warning，而是：
+     - **把 release 压缩包输出到 `${{ runner.temp }}` 这类 workspace 外部临时目录**
+     - 再从该临时路径执行 SCP 上传
+     - 先确保 runner 打包稳定通过，后面才有资格继续验证服务器部署阶段
+
 #### Why this still did not get fixed successfully
 
 到现在还没修成功，真实原因不是单点故障，而是**连续几次判断都只解决了局部问题，没有真正拿到完整线上事实再闭环**。
@@ -410,9 +420,15 @@
 - 服务器 release 目录是否真的生成
 - `curl http://127.0.0.1:8083/api/health` 失败在哪一步
 
+并且在最新一次 push 后，又新增确认了一个更前置的失败点：
+- `Create release archive` 步骤直接报 `tar: .: file changed as we read it`
+- 说明 workflow 甚至可能还没走到上传和服务器部署阶段，就已经在 runner 本地打包时失败
+- 当前正确修法也已经明确：**release 包不能再生成在 workspace 内，必须输出到 runner 临时目录，再交给后续上传步骤使用**
+
 所以当前只能确认：
 - **新方案已经写了**
 - **但不能确认新方案已经在线上真实跑通**
+- **并且需要先修掉 runner 打包阶段的 tar 自包含失败问题，后面才谈得上继续验证上传和部署**
 
 ##### Root cause 5: 我在执行上也存在问题
 这次没有修成，我这里有几条明确失误，后续必须避免：
@@ -437,10 +453,11 @@
 到当前对话结束，能确认的结论只有这些：
 
 1. **GitHub Actions 自动部署仍未恢复成功**
-2. **之前至少出现过三类真实失败点：**
+2. **之前至少出现过四类真实失败点：**
    - 服务器脏工作区拦截 `git pull`
    - 服务器访问 GitHub HTTPS 不稳定（`Empty reply from server`）
    - 服务器已有服务/旧栈占用端口（至少出现过 3306 冲突）
+   - GitHub runner 本地打包 release 时触发 `tar: .: file changed as we read it`
 3. **当前仓库里的“新部署方案”已经改成：**
    - 前端入口目标：`http://111.230.113.110:8083`
    - 正式部署栈：`deploy/docker-compose.all-in-one.yml`
@@ -451,14 +468,16 @@
 
 后续如果继续修这个部署问题，必须按下面顺序来，不能再跳步：
 
-1. **先拿到这次新 workflow 的完整失败日志**
-   - 必须看到失败停在哪一步：
-     - Create release archive
-     - Upload release archive
-     - Deploy release on server
-     - curl health check
+1. **先确认这次 tar 打包修复后的新 workflow 日志**
+   - 必须先看 `Create release archive` 是否已经通过
+   - 如果仍失败，要继续看失败时是否仍是 tar 自包含 / runner 工作目录变化问题
 
-2. **再拿服务器运行态事实**
+2. **如果 tar 已通过，再看失败停在哪一步：**
+   - Upload release archive
+   - Deploy release on server
+   - curl health check
+
+3. **再拿服务器运行态事实**
    先在服务器执行并留档：
    ```bash
    docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
@@ -473,6 +492,7 @@
    ```
 
 3. **最后才决定下一步改哪一层**
+   - 如果失败在 tar 打包：先修 runner 打包逻辑
    - 如果失败在 SCP：修上传链路
    - 如果失败在 SSH 解压：修 release 目录逻辑
    - 如果失败在 compose up：修容器/环境变量/端口
@@ -480,6 +500,7 @@
 
 明确规则：
 - **部署类问题，先拿完整失败日志和运行态状态，再改代码。**
+- **GitHub Actions 新 workflow 要先保证本地打包步骤自己能稳定通过，再谈上传和服务器部署。**
 - **不要再只根据部分报错就宣布“根因已经锁定”。**
 
 
