@@ -118,6 +118,9 @@ jobs:
               docker compose -f deploy/docker-compose.all-in-one.yml down || true
             fi
 
+            docker rm -f aikey-backend aikey-frontend 2>/dev/null || true
+            docker network rm deploy_aikey-network 2>/dev/null || true
+
             cd "${{ env.RELEASE_DIR }}"
             rm -rf "${{ env.APP_DIR }}"
             mv "${{ env.RELEASE_NAME }}" "${{ env.APP_DIR }}"
