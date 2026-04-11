@@ -721,10 +721,59 @@ done
 明确规则：
 - **部署类问题，先拿完整失败日志和运行态状态，再改代码。**
 - **GitHub Actions 新 workflow 要先保证本地打包步骤自己能稳定通过，再谈上传和服务器部署。**
-- **不要再只根据部分报错就宣布“根因已经锁定”。**
+- **不要再只根据部分报错就宣布”根因已经锁定”。**
+
+#### Conversation continuation: deployment fully resolved + CORS login fix (2026-04-11, round 3)
+
+##### 最终状态
+
+**GitHub Actions 自动部署已完全恢复，云端可正常访问和登录。**
+
+这轮解决了最后两个阻塞点：
+
+**阻塞点1：CI 健康检查方式错误**
+
+- 现象：nginx 日志报 `connect() failed (111: Connection refused) while connecting to upstream`，健康检查始终失败
+- 根因叠加了两层：
+  1. 健康检查 URL `http://127.0.0.1:8083/api/health` 经 nginx 转发到后端，但后端没有 `/api/health` endpoint（真实是 `/actuator/health`）
+  2. 后端端口 8080 未暴露给宿主机，只能在 Docker 内网访问
+- 修法：改成 `docker exec aikey-backend curl http://localhost:8080/actuator/health`，直接在容器内检查，绕开 nginx 和端口暴露问题
+- 等待时间从 120s 延长到 240s（24 次 × 10s），给 Spring Boot 足够冷启动时间
+
+**阻塞点2：CORS 白名单缺少云端地址**
+
+- 现象：部署成功、后端正常启动、数据库账号存在密码正确，但云端浏览器无法登录
+- 诊断过程：先跑两条命令确认数据层（后端日志 + 数据库查询），确认账号和密码均正常后，转向请求链路排查
+- 根因：`SecurityConfig.java` 的 CORS 白名单只有 `localhost` 系列，没有 `http://111.230.113.110:8083`
+- 关键机制：Spring Security 的 CORS 过滤器在请求到达 Controller 之前就检查 `Origin` 头，即使请求经过 nginx 反向代理，浏览器发出的 `Origin` 仍是前端地址，不在白名单就直接拦截
+- 修法：在 `SecurityConfig.java` 的 `allowedOrigins` 列表中加入 `http://111.230.113.110:8083`
+
+##### 这轮沉淀的规则
+
+1. **健康检查要直接检查目标服务，不要绕路经过代理**
+   - 用 `docker exec <container> curl http://localhost:<port>/<real-health-path>`
+   - 不要用宿主机 curl 经过 nginx 代理检查后端
+   - Spring Boot 默认健康 endpoint 是 `/actuator/health`，不是 `/api/health`
+
+2. **「本地能用、云端不能用」的标准排查顺序**
+   - 第一步：确认数据层（账号是否存在、密码是否正确、角色是否关联）
+   - 数据层没问题 → 排查请求链路：**CORS 白名单 → 认证过滤器 → 业务逻辑**
+   - CORS 是最容易被忽略的，因为本地走 Vite proxy 不触发 CORS，云端浏览器直接发请求才会触发
+
+3. **部署问题要层层推进，每次只修一层**
+   - 每次 CI 失败，先读完整日志确认失败停在哪一步，再改代码
+   - 不要在没有新日志的情况下连续改多处
+   - 修完一层后明确说「当前阻塞点已后移到 X」
+
+##### 当前云端状态（已验证）
+
+- CI/CD：✓ GitHub Actions 自动部署稳定运行
+- 前端：✓ `http://111.230.113.110:8083` 可正常访问
+- 后端：✓ 容器正常启动，数据库连通
+- 登录：✓ `enterprise_admin / admin123` 可正常登录
+- 部署栈：`deploy/docker-compose.all-in-one.yml`（前端 + 后端，复用服务器现有 MySQL/Redis）
 
 
-## 4. Current Technical State
 
 ### 4.1 Backend capabilities already available
 
@@ -1058,4 +1107,4 @@ Focus:
 
 ## 8. One-Sentence Takeaway
 
-**当前项目已经进入“`admin` 身份真相源需要先收口、团队管理双视角规则已明确”的阶段；后续最重要的不是继续猜前端显示，而是先对齐后端 bootstrap 身份链路，再用真实账号验证企业管理员 / 团队管理员双视角。**
+**当前项目已进入「部署链路完全恢复、云端可正常登录」的阶段；下一步重点是收口 `admin` 身份漂移问题（从 bootstrap 超管链路中移除），再用真实账号验证企业管理员 / 团队管理员双视角。**
