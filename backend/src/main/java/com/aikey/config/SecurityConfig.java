@@ -145,7 +145,8 @@ public class SecurityConfig {
             "http://127.0.0.1:5174",
             "http://127.0.0.1:5175",
             "http://127.0.0.1:3000",
-            "http://127.0.0.1:4173"
+            "http://127.0.0.1:4173",
+            "http://111.230.113.110:8083"  // 云端生产地址
         ));
         // 允许的HTTP方法
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));

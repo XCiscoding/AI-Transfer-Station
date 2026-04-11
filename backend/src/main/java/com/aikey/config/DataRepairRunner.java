@@ -28,6 +28,7 @@ import java.sql.ResultSet;
 public class DataRepairRunner implements CommandLineRunner {
 
     private static final String DEFAULT_BOOTSTRAP_PASSWORD = "admin123";
+    private static final String BOOTSTRAP_SUPER_ADMIN_ROLE = "SUPER_ADMIN";
 
     private final DataSource dataSource;
     private final PasswordEncoder passwordEncoder;
@@ -140,14 +141,14 @@ public class DataRepairRunner implements CommandLineRunner {
             long roleId;
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT id FROM roles WHERE role_code = ?")) {
-                ps.setString(1, "SUPER_ADMIN");
+                ps.setString(1, BOOTSTRAP_SUPER_ADMIN_ROLE);
                 ResultSet rs = ps.executeQuery();
                 if (!rs.next()) {
-                    log.error("❌ SUPER_ADMIN角色不存在，无法自动修复用户 {}", username);
+                    log.error("❌ {}角色不存在，无法自动修复用户 {}", BOOTSTRAP_SUPER_ADMIN_ROLE, username);
                     return;
                 }
                 roleId = rs.getLong("id");
-                log.info("找到SUPER_ADMIN角色，ID: {}", roleId);
+                log.info("找到{}角色，ID: {}", BOOTSTRAP_SUPER_ADMIN_ROLE, roleId);
             }
 
             try (PreparedStatement ps = conn.prepareStatement(
@@ -157,7 +158,7 @@ public class DataRepairRunner implements CommandLineRunner {
                 int rows = ps.executeUpdate();
 
                 if (rows > 0) {
-                    log.info("✅ 成功为用户 {} 关联SUPER_ADMIN角色 (userId={}, roleId={})", username, userId, roleId);
+                    log.info("✅ 成功为用户 {} 关联{}角色 (userId={}, roleId={})", username, BOOTSTRAP_SUPER_ADMIN_ROLE, userId, roleId);
                 } else {
                     log.error("❌ 插入用户 {} 的user_roles失败，影响行数为0", username);
                 }

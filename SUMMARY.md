@@ -371,15 +371,19 @@
      - 与 ssh 脚本里写死的 `cd /root/AI-center/releases && tar -xzf release-<sha>.tar.gz`
      - **两边并没有对齐**
    - 后续日志进一步确认：
-     - release 包实际已经上传到了 `/root/AI-center/releases/github/runner_temp/release-<sha>.tar.gz`
-     - 但 ssh 脚本第一次修法里，`find` 虽然把路径打印出来了，脚本仍然继续进入“找不到文件”分支
-   - 这说明当时还不只是“路径没对齐”，还包括：
-     - **shell 里的 archive 路径赋值 / 判空逻辑本身也没有写稳**
-   - 当前正确修正方向应当是：
-     - 不再依赖一段先赋值再二次判定的脆弱变量流
-     - 先判断标准路径是否存在，存在就直接解压
-     - 不存在再执行 `find`，找到后立刻直接解压
-     - 只有完全找不到时才打印 releases 文件清单并退出
+     - release 包实际会落到 `/root/AI-center/releases/github/runner_temp/release-<sha>.tar.gz` 这类路径
+     - 并不会稳定落在 `/root/AI-center/releases/release-<sha>.tar.gz`
+   - 更关键的是，在最新一次 run 里：
+     - 当前环境变量里的 `RELEASE_NAME` 已经变成了新 SHA（如 `release-0a8a7b8...`）
+     - 但失败时在服务器上打印出来的仍然是旧 SHA 的压缩包（如 `release-a696202...tar.gz`）
+   - 这说明当前问题已经不只是“ssh 该怎么找文件”，而是：
+     - **`scp-action` 对来自 `${{ runner.temp }}` 的绝对路径上传行为并不稳定**
+     - 服务器 releases 目录里可能只残留旧包，当前这次 run 的新包根本没有按预期落盘
+   - 因此当前最值得保留的下一个修法不是继续补 ssh 查找分支，而是：
+     - **新增一个 runner 侧 staging 目录**，例如 `${{ github.workspace }}/.release-upload/`
+     - 先把 `${{ runner.temp }}/${{ env.RELEASE_NAME }}.tar.gz` 复制到这个 staging 目录
+     - 再让 `scp-action` 从相对稳定的 workspace 路径上传，而不是直接上传 runner.temp 绝对路径
+     - 同时去掉对 `strip_components` 的依赖，让服务器侧落点更可预测
 
 #### Why this still did not get fixed successfully
 
@@ -447,14 +451,15 @@
 - `Deploy release on server` 阶段解压时报：`release-<sha>.tar.gz: Cannot open: No such file or directory`
 - 说明 workflow 已经进入服务器阶段，但 `scp-action` 的真实上传落点和 ssh 脚本里假设的 release 包位置并不一致
 - 也就是说：**当前除了 runner 打包问题外，上传路径和服务器解压路径之间也存在断层**
-- 后续日志又进一步确认：release 包其实已经上传到了 `/root/AI-center/releases/github/runner_temp/...`，只是 ssh 脚本第一次补的 `find + 变量赋值` 逻辑还不够稳，导致“明明找到了路径，仍然按未找到处理”
-- 因此这里的正确修法，不是继续堆叠判空，而是直接把解压逻辑改成：**标准路径存在就直接解压，否则 find 到真实路径后立刻解压**
+- 后续日志又进一步确认：release 包并不会稳定落在 `/root/AI-center/releases/release-<sha>.tar.gz`，而是会落到 `/root/AI-center/releases/github/runner_temp/...` 这类路径
+- 更关键的是，最新 run 里环境变量已经切到新的 `RELEASE_NAME`，但服务器侧打印出来的仍是旧 SHA 的压缩包，这说明 **当前真正没对齐的是上传行为本身，而不只是 ssh 查找逻辑**
+- 因此这里下一步最值得执行的修法，不是继续加 ssh 判空分支，而是：**先在 runner workspace 下准备一个 staging 目录，再从这个 staging 相对路径上传 release 包**
 
 所以当前只能确认：
 - **新方案已经写了**
 - **但不能确认新方案已经在线上真实跑通**
 - **并且需要先修掉 runner 打包阶段的 tar 自包含失败问题，后面才谈得上继续验证上传和部署**
-- **在此基础上，还要把 scp 上传落点和服务器解压查找逻辑对齐，后面才能继续验证 compose 启动链路**
+- **在此基础上，还要把 scp 上传来源改成 workspace staging 目录，避免 runner.temp 绝对路径上传行为不稳定，后面才能继续验证 compose 启动链路**
 
 ##### Root cause 5: 我在执行上也存在问题
 这次没有修成，我这里有几条明确失误，后续必须避免：
@@ -479,19 +484,205 @@
 到当前对话结束，能确认的结论只有这些：
 
 1. **GitHub Actions 自动部署仍未恢复成功**
-2. **之前至少出现过五类真实失败点：**
+2. **之前至少出现过六类真实失败点：**
    - 服务器脏工作区拦截 `git pull`
    - 服务器访问 GitHub HTTPS 不稳定（`Empty reply from server`）
    - 服务器已有服务/旧栈占用端口（至少出现过 3306 冲突）
    - GitHub runner 本地打包 release 时触发 `tar: .: file changed as we read it`
    - release 包上传后，SSH 解压阶段找不到 `release-<sha>.tar.gz`
+   - 新 run 的 release 包未稳定落盘，服务器上只看到旧 SHA 的残留压缩包
 3. **当前仓库里的“新部署方案”已经改成：**
    - 前端入口目标：`http://111.230.113.110:8083`
    - 正式部署栈：`deploy/docker-compose.all-in-one.yml`
    - 自动部署策略：GitHub runner 打包 → SCP 上传 → SSH 解压部署
 4. **但在没有拿到这次新 workflow 的完整失败日志之前，不能再声称“已经修好”**
 
-#### Correct next rule
+#### Conversation continuation: cloud deployment repair progress (2026-04-11, round 2)
+
+这轮对话把部署链路从"frontend build 通过"推进到了"后端实际已经成功启动、数据库已连通"，但 CI 仍然判定失败，原因是健康检查超时太短。
+
+##### 当前真实状态（截至本轮对话结束）
+
+- **frontend build**：✓ 已通过，镜像构建成功
+- **backend build**：✓ 已通过，镜像构建成功
+- **容器启动**：✓ `aikey-backend` 和 `aikey-frontend` 均已成功创建并启动
+- **数据库连接**：✓ 后端已成功连上 `tea-garden-mysql`，Hibernate 查询正常，DataInitializer 已跑完
+- **CI 健康检查**：✗ 仍然失败，原因是 `curl --max-time 20` 只等 20 秒，Spring Boot 冷启动需要 60 秒左右
+
+##### 本轮实际解决的问题（按顺序）
+
+1. **Docker Compose project name 不一致导致 `down` 无效**
+   - 旧容器是从 `deploy/` 目录启动的，project name = `deploy`，网络叫 `deploy_aikey-network`
+   - workflow 里 `down` 从 `APP_DIR` 运行，project name = `ai-transfer-station`，找不到旧容器，`|| true` 静默跳过
+   - 修法：在 `up` 之前加 `docker rm -f aikey-backend aikey-frontend 2>/dev/null || true`
+
+2. **旧容器名不同导致清理命中不到**
+   - 服务器上还有 `aikey-frontend-8083` 和 `aikey-backend-8082` 两个旧容器占着端口
+   - 修法：把这两个旧名字也加进 `docker rm -f` 清理列表
+
+3. **MySQL 密码排查过程**
+   - `tea-garden-mysql` 的 root 密码不是 `wml2580.`，也不是 `teagarden666`，真实密码是 `rootpass`
+   - 教训：MySQL 密码必须从容器实际运行的 docker-compose 或 `.env` 文件里找，不能靠猜
+
+4. **MySQL 用户创建**
+   - 在 `tea-garden-mysql` 里创建了 `aikey@'%'` 用户，密码 `AiKeyUser2024!`，授权 `ai_key_management` 数据库
+   - 在服务器 `/root/AI-center/AI-Transfer-Station/deploy/.env` 写入了正确的数据库凭据
+
+5. **`.env` 文件时序问题**
+   - workflow 会在部署时把 `APP_DIR/deploy/.env` 复制到新 release
+   - 如果 `.env` 是在 CI 已经开始跑之后才创建的，那次 CI 就不会带上新凭据
+   - 教训：`.env` 必须在触发 CI 之前就已经存在于服务器上
+
+##### 当前唯一剩余阻塞点
+
+CI 健康检查超时：
+
+```bash
+curl --fail --show-error --max-time 20 http://127.0.0.1:8083/api/health
+```
+
+Spring Boot 冷启动需要 60 秒左右，20 秒根本等不到。后端其实已经正常启动，只是 CI 判定太急。
+
+**下一步只需要一个改动**：把 workflow 里的健康检查改成重试循环，最多等 2 分钟：
+
+```bash
+for i in $(seq 1 12); do
+  if curl --fail --silent --max-time 5 http://127.0.0.1:8083/api/health; then
+    echo "Backend ready"
+    break
+  fi
+  echo "Waiting... ($i/12)"
+  sleep 10
+done
+```
+
+##### 本轮沉淀的部署规则
+
+1. **Docker Compose 清理必须按容器名来，不能只靠 `compose down`**
+   - `compose down` 依赖 project name 匹配，历史遗留容器名不同时会静默跳过
+   - 正确做法：在 `up` 之前显式 `docker rm -f` 所有已知容器名（包括历史旧名）
+
+2. **MySQL 密码必须从实际运行配置里找**
+   - 不要靠猜，不要靠记忆，直接 `find /root -name ".env" | xargs grep MYSQL_ROOT_PASSWORD`
+
+3. **`.env` 文件必须在 CI 触发前就存在于服务器**
+   - workflow 的 `.env` 复制逻辑是"从旧 APP_DIR 复制"，如果旧 APP_DIR 里没有，就用 `.env.example` 兜底
+   - 兜底的 `.env.example` 里是占位符，不是真实凭据
+
+4. **CI 健康检查超时必须大于 Spring Boot 冷启动时间**
+   - Spring Boot 冷启动通常 30-60 秒，`--max-time 20` 必然超时
+   - 应改成重试循环，总等待时间至少 120 秒
+
+#### Conversation continuation: cloud deployment repair progress (2026-04-11)
+
+这次对话把问题继续往前推进了，而且已经能把“云端上传这里到底修到了哪一层”说清楚。
+
+##### 先说结论
+
+截至当前这轮对话，**围绕 GitHub Actions 云端上传/部署链路，已经实际落地了 6 个修复**，其中前 5 个已经被后续日志连续验证为“确实把故障往后推进了”，第 6 个是当前最新锁定并已本地改掉、但还没再次 push 验证的新修复。
+
+这 6 个修复分别是：
+
+1. **修复 runner 本地 tar 自包含失败**
+   - 现象：`tar: .: file changed as we read it`
+   - 修法：release 包不再直接生成在 workspace 当前目录，而是先输出到 `${{ runner.temp }}`
+   - 结果：workflow 能继续进入后续上传/部署阶段，说明打包层已经不再是当前主拦截点
+
+2. **修复 release 上传来源不稳定的问题**
+   - 现象：直接从 `runner.temp` 绝对路径给 `scp-action` 上传时，服务器侧落点不稳定
+   - 修法：新增 `${{ github.workspace }}/.release-upload/` staging 目录，先把 tar 包复制进去，再从 workspace 相对路径上传
+   - 结果：后续日志已经能在服务器 release 目录里看到当前链路继续往下跑，不再停死在“本次包根本没法被后续阶段接住”这一层
+
+3. **补强服务器侧 release 落点与解压诊断日志**
+   - 修法：在 ssh 脚本中增加 `pwd`、`ls -la`、`find release-*.tar.gz`、`stat`、`tar -tzf`、解压后目录快照等日志
+   - 结果：后面每次失败都能明确看到“卡在哪一层”，不再靠猜
+
+4. **修复服务器部署脚本里的工作目录切换错误**
+   - 现象：`mv: cannot stat 'release-<sha>'`
+   - 根因：脚本为了执行 `docker compose down` 先 `cd` 到 `${APP_DIR}`，但后面直接用相对路径 `mv "${RELEASE_NAME}" "${APP_DIR}"`，此时当前目录已经不是 `${RELEASE_DIR}`
+   - 修法：在 `rm -rf` 和 `mv` 前显式 `cd "${{ env.RELEASE_DIR }}"`
+   - 结果：部署流程成功越过“release 目录移动失败”这一层，继续往镜像构建阶段推进
+
+5. **修复 backend 容器健康检查路径错误，并顺手优化后端构建链路**
+   - 现象：backend 真实健康接口是 `/actuator/health`，不是 `/api/health`
+   - 修法：
+     - `deploy/Dockerfile.backend` 健康检查改成 `curl -f http://localhost:8080/actuator/health`
+     - 同时把 builder 改成 `maven:3.9.9-eclipse-temurin-17-alpine`，并加入 Maven 仓库缓存挂载，去掉额外 `apk add maven`
+   - 结果：后续日志已经表明流程能推进到 backend build 完成之后，说明当前主阻塞点已不在 backend 健康检查这一层
+
+6. **修复 frontend 构建阶段缺少 devDependencies 的根因**
+   - 现象：日志明确报错：`sh: vite: not found`
+   - 根因：`deploy/Dockerfile.frontend` 使用了 `RUN npm ci --only=production`，但 `vite` 与 `@vitejs/plugin-vue` 在 `frontend/package.json` 里属于 `devDependencies`，而 `npm run build` 构建阶段必须依赖它们
+   - 修法：把 `RUN npm ci --only=production` 改成 `RUN npm ci`
+   - 当前状态：**这个修复已经本地改掉，但截至当前还没有新的云端 run 来完成最终验证**
+
+##### 现在真正能确认的链路位置
+
+能确认的不是“部署已经修好了”，而是：
+
+- **release 打包层**：已经修通，不再是当前阻塞点
+- **release 上传/服务器查包层**：已经从“根本找不到当前包”推进到“能继续执行服务器部署脚本”
+- **release 解压与目录切换层**：已经修通到可继续进入 compose build
+- **backend 构建层**：已经能继续推进，不是当前最新报错点
+- **当前最新锁定的真实阻塞点**：frontend 镜像构建时缺少 `vite` 等构建依赖
+
+换句话说，**云端上传这里本身不是还卡在最前面，而是已经被连续修到能把问题暴露到 frontend build 这一步了。**
+
+##### 为什么这个结论成立
+
+逻辑链要按时间顺序看，不能只看最后一条报错：
+
+1. 最开始卡在 runner 本地打包
+   - 证据：`Create release archive` 直接报 `tar: .: file changed as we read it`
+   - 说明那时连上传都还没开始
+
+2. tar 修完后，问题推进到服务器找不到 release 包
+   - 证据：`Deploy release on server` 报 `release-<sha>.tar.gz: Cannot open: No such file or directory`
+   - 说明上传/落点对齐成为新的前置问题
+
+3. 再补 runner staging + 服务器查包日志后
+   - 已经能看到 release 目录快照、候选 archive、实际使用 archive、解压目录内容
+   - 说明链路已经从“纯黑盒”变成“可观测”
+
+4. 再修 `cd` 路径错误后
+   - `mv: cannot stat 'release-<sha>'` 这个故障被消掉
+   - 流程继续往 `docker compose up -d --build` 推进
+
+5. 后续日志已经显示 backend build 能继续执行
+   - 这说明上传、查包、解压、目录切换这些前置链路至少已经足够正确，否则根本到不了这里
+
+6. 最新完整日志最终停在 frontend build 的 `vite: not found`
+   - 这不是上传问题，不是 release 包落点问题，也不是后端健康检查问题
+   - 这是一个更靠后的、并且日志能直接闭环到 `frontend/package.json` 的明确根因
+
+所以当前最准确的说法只能是：
+- **云端上传链路相关，已经做了 6 个修复**
+- **其中前 5 个已经被后续运行日志验证为有效推进**
+- **第 6 个（frontend `npm ci`）是当前最新根因修复，已本地落地，待下一次 push/run 验证**
+- **现在不能再把问题概括成“上传还是不行”**，因为真实故障位置已经后移到了 frontend build
+
+##### 当前仓库状态补充
+
+当前相关文件已经处于下面这个状态：
+
+- `.github/workflows/deploy.yml`
+  - 已包含：runner.temp 打包、workspace staging 上传、服务器查包诊断、回切 `RELEASE_DIR`、compose 启动后日志与健康检查输出
+- `deploy/Dockerfile.backend`
+  - 已包含：Maven 基础镜像、缓存挂载、`/actuator/health` 健康检查
+- `deploy/Dockerfile.frontend`
+  - 已本地改成 `RUN npm ci`
+  - 这个改动就是当前最新待验证修复
+
+##### 到当前为止的正确表述
+
+如果现在要对外描述当前进度，最准确的话应该是：
+
+- GitHub Actions 部署链路**还没有最终验证成功**
+- 但它已经从最早的“runner 打包都过不去 / server 找不到包 / release 目录移动失败”
+  推进到“frontend 构建缺少 vite 依赖”
+- 这说明前面的上传、查包、解压、目录切换、backend 相关修复，已经把故障层层往后推开了
+- 下一次验证的重点，不再是怀疑上传是否还坏着，而是验证 `deploy/Dockerfile.frontend` 的 `npm ci` 修复是否让前端镜像成功构建
+
 
 后续如果继续修这个部署问题，必须按下面顺序来，不能再跳步：
 
@@ -504,6 +695,7 @@
    - Deploy release on server
    - curl health check
    - 特别是先确认 release 包在服务器上的真实落点，不能再默认它一定就在 `/root/AI-center/releases/release-<sha>.tar.gz`
+   - 如果服务器上只出现旧 SHA 的残留包，而没有当前 run 的新包，优先怀疑 `scp-action` 对 runner.temp 绝对路径上传行为不稳定
 
 3. **再拿服务器运行态事实**
    先在服务器执行并留档：
@@ -521,7 +713,7 @@
 
 3. **最后才决定下一步改哪一层**
    - 如果失败在 tar 打包：先修 runner 打包逻辑
-   - 如果失败在 SCP：修上传链路
+   - 如果失败在 SCP：优先把上传来源改成 workspace staging 目录，再看服务器落点是否恢复可预测
    - 如果失败在 SSH 解压：先核实 release 包实际落点，再修服务器解压路径和查找逻辑
    - 如果失败在 compose up：修容器/环境变量/端口
    - 如果失败在 curl health check：修服务启动顺序或后端可达性

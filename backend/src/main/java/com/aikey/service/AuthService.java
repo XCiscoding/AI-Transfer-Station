@@ -34,6 +34,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final String SUPER_ADMIN_ROLE = "SUPER_ADMIN";
+
     private final AuthenticationManager authenticationManager;
 
     private final JwtTokenProvider tokenProvider;
@@ -112,7 +114,7 @@ public class AuthService {
         user.setLastLoginTime(LocalDateTime.now());
         userRepository.save(user);
 
-        boolean isSuperAdmin = roleCodes.contains("SUPER_ADMIN");
+        boolean isSuperAdmin = roleCodes.contains(SUPER_ADMIN_ROLE);
         boolean isTeamOwner = user.getId() != null && teamRepository.existsByOwnerIdAndDeleted(user.getId(), 0);
 
         log.info("用户登录成功: {}", username);
@@ -145,7 +147,7 @@ public class AuthService {
         // 直接用原生SQL查角色，避免JPA关联状态影响 /auth/me 返回
         List<String> roleCodes = queryRoleCodes(user.getId());
 
-        boolean isSuperAdmin = roleCodes.contains("SUPER_ADMIN");
+        boolean isSuperAdmin = roleCodes.contains(SUPER_ADMIN_ROLE);
         boolean isTeamOwner = user.getId() != null && teamRepository.existsByOwnerIdAndDeleted(user.getId(), 0);
 
         return UserInfoResponse.builder()
@@ -175,7 +177,7 @@ public class AuthService {
         log.info("开始为引导超级管理员用户 {} 自动修复角色关联...", user.getUsername());
 
         jakarta.persistence.Query selectRoleQuery = entityManager.createNativeQuery(
-                "SELECT id FROM roles WHERE role_code = 'SUPER_ADMIN'");
+                "SELECT id FROM roles WHERE role_code = '" + SUPER_ADMIN_ROLE + "'");
         Object roleIdResult = selectRoleQuery.getSingleResult();
 
         if (roleIdResult == null) {
