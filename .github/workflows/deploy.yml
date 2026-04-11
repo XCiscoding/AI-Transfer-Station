@@ -132,16 +132,21 @@ jobs:
             echo "=== port listeners after compose up ==="
             ss -ltnp | grep -E ':8080|:8083' || true
 
-            echo "=== frontend http headers ==="
-            curl -I --max-time 15 http://127.0.0.1:8083
-
-            echo "=== backend health via frontend route ==="
-            if ! curl --fail --show-error --max-time 20 http://127.0.0.1:8083/api/health; then
-              echo "=== docker ps ==="
-              docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
-              echo "=== compose logs: backend ==="
-              docker compose -f deploy/docker-compose.all-in-one.yml logs --tail=200 backend || true
-              echo "=== compose logs: frontend ==="
-              docker compose -f deploy/docker-compose.all-in-one.yml logs --tail=200 frontend || true
-              exit 1
-            fi
+            echo "=== backend health check (retry up to 120s) ==="
+            for i in $(seq 1 12); do
+              if curl --fail --silent --max-time 5 http://127.0.0.1:8083/api/health; then
+                echo "Backend ready"
+                break
+              fi
+              echo "Waiting... ($i/12)"
+              if [ "$i" -eq 12 ]; then
+                echo "=== docker ps ==="
+                docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Status}}'
+                echo "=== compose logs: backend ==="
+                docker compose -f deploy/docker-compose.all-in-one.yml logs --tail=200 backend || true
+                echo "=== compose logs: frontend ==="
+                docker compose -f deploy/docker-compose.all-in-one.yml logs --tail=200 frontend || true
+                exit 1
+              fi
+              sleep 10
+            done
