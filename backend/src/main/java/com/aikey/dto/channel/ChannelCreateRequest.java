@@ -16,7 +16,7 @@ public class ChannelCreateRequest {
     private String channelCode;
 
     @NotBlank(message = "渠道类型不能为空")
-    private String channelType;   // openai/qwen/wenxin/doubao/claude/gemini/deepseek
+    private String channelType;   // openai/qwen/wenxin/doubao/claude/gemini/deepseek/zhipu
 
     @NotBlank(message = "Base URL不能为空")
     private String baseUrl;

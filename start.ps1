@@ -164,6 +164,32 @@ function Invoke-DockerMySQL {
     Write-Output $output
 }
 
+function Get-DatabaseTableCount {
+    param([string]$DatabaseName)
+
+    if ($useDockerForMySQL -or ((Test-Command "docker") -and (& docker ps --filter "name=$MySqlContainerName" --format "{{.Names}}" 2>$null) -contains $MySqlContainerName)) {
+        try {
+            $output = & docker exec $MySqlContainerName mysql -uroot -proot -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DatabaseName';" 2>&1
+            $count = ($output | Where-Object { $_ -notmatch 'Warning.*password' } | Select-Object -Last 1).ToString().Trim()
+            if ($count -match '^\d+$') {
+                return [int]$count
+            }
+        } catch {}
+    }
+
+    if (Test-Command "mysql") {
+        try {
+            $output = & mysql -uroot -proot -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DatabaseName';" 2>&1
+            $count = ($output | Select-Object -Last 1).ToString().Trim()
+            if ($count -match '^\d+$') {
+                return [int]$count
+            }
+        } catch {}
+    }
+
+    return $null
+}
+
 function Test-BackendHealth {
     param([int]$Port, [int]$MaxWait = 90)
     $healthUrl = "http://localhost:$Port/actuator/health"
@@ -433,7 +459,19 @@ if (-not (Test-Path $schemaFile) -or -not (Test-Path $dataFile)) {
     exit 1
 }
 
-Write-SubStep -Message "Using backend spring.sql.init for schema/data initialization" -Status "OK"
+Write-SubStep -Message "Database initialization is handled only by .\init-db.ps1" -Status "OK"
+
+$tableCount = Get-DatabaseTableCount -DatabaseName "ai_key_management"
+if ($null -eq $tableCount) {
+    Write-SubStep -Message "Cannot inspect current database state; startup will continue without auto-initialization" -Status "WARN"
+    Write-Host "    If the backend fails due to missing tables, run .\init-db.ps1 first." -ForegroundColor $Yellow
+} elseif ($tableCount -eq 0) {
+    Write-SubStep -Message "Database is empty; run .\init-db.ps1 before starting the backend" -Status "FAIL"
+    Read-Host "Press Enter to exit"
+    exit 1
+} else {
+    Write-SubStep -Message "Database ready with $tableCount tables" -Status "OK"
+}
 
 Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Checking port availability..."
 
