@@ -55,6 +55,7 @@
         <div class="filter-actions">
           <el-button type="primary" class="search-btn" @click="handleSearch">查询</el-button>
           <el-button class="reset-btn" @click="handleReset">重置</el-button>
+          <el-button class="export-btn" :loading="exporting" @click="handleExport">导出 CSV</el-button>
         </div>
       </div>
     </div>
@@ -154,6 +155,9 @@
         <el-descriptions-item label="Completion Tokens">{{ currentLog.completionTokens ?? '-' }}</el-descriptions-item>
         <el-descriptions-item label="Total Tokens">{{ currentLog.totalTokens ?? '-' }}</el-descriptions-item>
         <el-descriptions-item label="响应时间">{{ currentLog.responseTime != null ? currentLog.responseTime + 'ms' : '-' }}</el-descriptions-item>
+        <el-descriptions-item label="自动选模">{{ currentLog.isAutoMode === 1 ? '是' : '否' }}</el-descriptions-item>
+        <el-descriptions-item label="选中模型">{{ currentLog.selectedModel || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="调度策略">{{ currentLog.selectionStrategy || '-' }}</el-descriptions-item>
         <el-descriptions-item label="时间">{{ formatTime(currentLog.createdAt) }}</el-descriptions-item>
       </el-descriptions>
       <template #footer>
@@ -166,7 +170,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getLogList } from '@/api/log'
+import { getLogList, exportLogs } from '@/api/log'
 
 // 搜索表单
 const searchForm = reactive({
@@ -186,6 +190,9 @@ const pagination = reactive({
   size: 20,
   total: 0
 })
+
+// 导出
+const exporting = ref(false)
 
 // 详情弹窗
 const detailVisible = ref(false)
@@ -294,6 +301,34 @@ const handlePageChange = (page) => {
 const handleDetail = (row) => {
   currentLog.value = row
   detailVisible.value = true
+}
+
+// 导出 CSV
+const handleExport = async () => {
+  exporting.value = true
+  try {
+    const params = {}
+    if (searchForm.timeRange && searchForm.timeRange.length === 2) {
+      params.startTime = toIsoDateTime(searchForm.timeRange[0])
+      params.endTime = toIsoDateTime(searchForm.timeRange[1])
+    }
+    if (searchForm.modelName) params.modelName = searchForm.modelName
+    if (searchForm.status !== null && searchForm.status !== '') params.status = searchForm.status
+    if (searchForm.channelId) params.channelId = searchForm.channelId
+
+    const blob = await exportLogs(params)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `call_logs_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败')
+  } finally {
+    exporting.value = false
+  }
 }
 
 onMounted(() => {
@@ -481,6 +516,16 @@ onMounted(() => {
 .reset-btn:hover {
   background: rgba(255, 255, 255, 0.1) !important;
   color: #F8FAFC !important;
+}
+
+.export-btn {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  color: #10b981 !important;
+}
+
+.export-btn:hover {
+  background: rgba(16, 185, 129, 0.2) !important;
 }
 
 /* 表格 */

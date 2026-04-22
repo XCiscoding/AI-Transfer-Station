@@ -244,3 +244,75 @@ Phase 3 / Phase 4 / Phase 5 彼此无依赖，可任意顺序推进：
 3. 验证通过后再开始 T2.1 流式支持
 
 详细踩坑记录和项目导读见：`docs/promote-v2.0.md`
+
+---
+
+## 2026-04-22 完成：T3.1 / T3.2 / T3.3 / T4.1 / T4.2 / T4.3
+
+### T3.1 — 日志 CSV 导出
+
+- `CallLogQueryService.java` 新增 `exportLogsCsv()` 方法，复用现有查询过滤条件
+- `CallLogVO.java` 补充 3 个字段：`isAutoMode`、`selectedModel`、`selectionStrategy`
+- `CallLogController.java` 新增 `GET /api/v1/logs/export`，返回带 UTF-8 BOM 的 CSV（兼容 Excel）
+- `frontend/src/api/log.js` 新增 `exportLogs(params)`，`responseType: 'blob'`
+- `frontend/src/views/RequestLog.vue` 新增「导出 CSV」按钮，`handleExport()` 触发浏览器下载
+
+### T3.2 — 流水 CSV 导出
+
+- `QuotaService.java` 新增 `exportTransactionsCsv()`，带 safe()/safeEscape() 防 CSV 注入
+- `QuotaController.java` 新增 `GET /api/v1/quota/transactions/export`
+- `frontend/src/api/quota.js` 新增 `exportQuotaTransactions(params)`
+- `frontend/src/views/QuotaFlow.vue` 新增「导出 CSV」按钮
+
+### T3.3 — 日志详情弹窗增强
+
+- `RequestLog.vue` 详情弹窗新增「调度模式」「实际模型」「选择策略」3 个字段展示
+
+### T4.1 — 告警规则 CRUD（全新功能模块）
+
+- 后端新建 5 个文件：`AlertRule.java`（实体）、`AlertHistory.java`（实体）、`AlertRuleRepository.java`、`AlertHistoryRepository.java`、`AlertRuleService.java`、`AlertRuleController.java`
+- `AlertRuleController` 提供 6 个端点：列表 / 创建 / 更新 / 切换启用 / 软删除 / 历史分页
+- 前端新建 `frontend/src/api/alert.js` + `frontend/src/views/AlertManagement.vue`（双 Tab：规则管理 + 告警历史）
+- `router/index.js` 将原占位 `/skills` 路由替换为 `/alerts` → `AlertManagement.vue`（同时完成 T7.3）
+- `MainLayout.vue` 侧边栏新增「告警管理」菜单项
+
+### T4.2 — 告警触发引擎（定时调度）
+
+- `AiKeyManagementApplication.java` 新增 `@EnableScheduling`
+- `CallLogRepository.java` 新增 4 个统计查询方法（按时间/渠道/状态 count）
+- 新建 `AlertCheckService.java`，`@Scheduled(fixedRate=60000)` 每分钟轮询所有启用规则：
+  - `quota_low`：虚拟 Key 剩余额度占比 < threshold%
+  - `channel_down`：渠道 healthStatus=0 或 failCount ≥ failThreshold
+  - `call_volume`：1 分钟内调用量 > maxCount
+  - `error_rate`：5 分钟内错误率 > maxRate
+  - 同一规则 1 小时内不重复触发（依赖 `existsByRuleIdAndCreatedAtAfter` 去重）
+
+### T4.3 — 告警通知前端展示
+
+- `AlertHistoryRepository.java` 新增 `countByCreatedAtAfter`、`findTop10ByOrderByCreatedAtDesc`
+- `AlertRuleService.java` 新增 `getUnreadCount()`（24 小时内告警数）、`getRecentAlerts()`
+- `AlertRuleController.java` 新增 `GET /api/v1/alert-rules/unread-count` 和 `/recent`
+- `frontend/src/api/alert.js` 新增 `getAlertUnreadCount`、`getRecentAlerts`
+- `MainLayout.vue` 顶栏铃铛：
+  - Badge 绑定真实未读数，每 60 秒轮询刷新
+  - 点击展开 Dropdown，展示最近 10 条告警（级别标签 + 标题 + 时间）
+  - 点击告警跳转至 `/alerts` 告警管理页
+
+### 编译状态
+
+- 后端 `mvn -DskipTests compile`：**BUILD SUCCESS**
+- 前端无新依赖，无需重新 build
+
+---
+
+## 当前可手测状态（2026-04-22）
+
+| 功能点 | 测试入口 |
+|--------|---------|
+| 日志 CSV 导出 | 前端「请求日志」页 → 可带过滤条件点「导出 CSV」 |
+| 流水 CSV 导出 | 前端「额度流水」页 → 点「导出 CSV」 |
+| 日志详情 3 新字段 | 「请求日志」→ 点任意一行「详情」按钮 |
+| 告警规则 CRUD | 前端侧栏「告警管理」，可创建/编辑/删/启停规则 |
+| 告警历史查看 | 「告警管理」→ 切换到「告警历史」Tab |
+| 告警触发引擎 | 服务启动后每 60 秒自动运行，满足条件写入历史表 |
+| 顶栏铃铛通知 | Badge 展示 24h 内告警数；点击下拉显示最近 10 条 |

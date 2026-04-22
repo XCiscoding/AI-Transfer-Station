@@ -28,10 +28,10 @@ const routes = [
         meta: { title: '模型广场', requiresAuth: true }
       },
       {
-        path: 'skills',
-        name: 'Skills',
-        component: () => import('@/views/Placeholder.vue'),
-        meta: { title: 'Skill超市', requiresAuth: true }
+        path: 'alerts',
+        name: 'AlertManagement',
+        component: () => import('@/views/AlertManagement.vue'),
+        meta: { title: '告警管理', requiresAuth: true }
       },
       {
         path: 'tokens',

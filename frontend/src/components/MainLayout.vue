@@ -51,6 +51,11 @@
           <template #title>请求日志</template>
         </el-menu-item>
 
+        <el-menu-item index="/alerts">
+          <el-icon><Bell /></el-icon>
+          <template #title>告警管理</template>
+        </el-menu-item>
+
         <el-divider />
 
         <el-menu-item index="/profile">
@@ -98,12 +103,38 @@
             </el-button>
           </el-tooltip>
 
-          <!-- 通知 -->
-          <el-badge :value="3" class="notification-badge">
-            <el-button circle class="glass-btn">
-              <el-icon :size="18"><Bell /></el-icon>
-            </el-button>
-          </el-badge>
+          <!-- 通知铃铛 -->
+          <el-dropdown trigger="click" @visible-change="handleBellOpen">
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" class="notification-badge">
+              <el-button circle class="glass-btn">
+                <el-icon :size="18"><Bell /></el-icon>
+              </el-button>
+            </el-badge>
+            <template #dropdown>
+              <div class="alert-dropdown-panel">
+                <div class="alert-panel-header">
+                  <span>最近告警</span>
+                  <el-button link size="small" @click="router.push('/alerts')">[查看全部]</el-button>
+                </div>
+                <el-divider style="margin: 6px 0" />
+                <div v-if="recentAlerts.length === 0" class="alert-empty">暂无告警</div>
+                <div
+                  v-for="alert in recentAlerts"
+                  :key="alert.id"
+                  class="alert-list-item"
+                  @click="router.push('/alerts')"
+                >
+                  <div class="alert-item-row">
+                    <el-tag :type="levelTagType(alert.alertLevel)" size="small" effect="dark" style="flex-shrink:0">
+                      {{ alert.alertLevel }}
+                    </el-tag>
+                    <span class="alert-item-title">「{{ alert.alertTitle }}」</span>
+                  </div>
+                  <div class="alert-item-time">{{ formatAlertTime(alert.createdAt) }}</div>
+                </div>
+              </div>
+            </template>
+          </el-dropdown>
 
           <!-- 用户头像 -->
           <el-dropdown>
@@ -139,6 +170,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useThemeStore } from '@/stores/theme.js'
 import Logo from '@/components/Logo.vue'
+import { getAlertUnreadCount, getRecentAlerts } from '@/api/alert.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -146,6 +178,38 @@ const themeStore = useThemeStore()
 const isCollapse = ref(false)
 const userInfo = ref(readStoredUserInfo())
 const username = computed(() => userInfo.value?.username || localStorage.getItem('username') || '管理员')
+
+// 告警通知
+const unreadCount = ref(0)
+const recentAlerts = ref([])
+let alertPollTimer = null
+
+async function fetchUnreadCount() {
+  try {
+    const res = await getAlertUnreadCount()
+    unreadCount.value = res?.data ?? 0
+  } catch {}
+}
+
+async function handleBellOpen(visible) {
+  if (!visible) return
+  try {
+    const res = await getRecentAlerts()
+    recentAlerts.value = res?.data ?? []
+  } catch {}
+}
+
+function levelTagType(level) {
+  const map = { critical: 'danger', warning: 'warning', info: 'info' }
+  return map[level] || 'info'
+}
+
+function formatAlertTime(time) {
+  if (!time) return ''
+  return new Date(time).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+  })
+}
 
 function readStoredUserInfo() {
   try {
@@ -183,11 +247,14 @@ onMounted(() => {
   syncUserInfo()
   window.addEventListener('storage', syncUserInfo)
   window.addEventListener('focus', syncUserInfo)
+  fetchUnreadCount()
+  alertPollTimer = setInterval(fetchUnreadCount, 60000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('storage', syncUserInfo)
   window.removeEventListener('focus', syncUserInfo)
+  if (alertPollTimer) clearInterval(alertPollTimer)
 })
 
 watch(
@@ -418,6 +485,60 @@ function handleLogout() {
   right: 6px;
   background: #EF4444;
   border: none;
+}
+
+.alert-dropdown-panel {
+  padding: 8px 0;
+  min-width: 300px;
+  max-width: 360px;
+}
+
+.alert-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.alert-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.alert-list-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.alert-list-item:hover {
+  background: var(--el-fill-color-lighter);
+}
+
+.alert-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.alert-item-title {
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.alert-item-time {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  padding-left: 2px;
 }
 
 .user-info {

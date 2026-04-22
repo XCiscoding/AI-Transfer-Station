@@ -38,6 +38,7 @@
         </div>
         <div class="filter-actions">
           <el-button type="primary" class="search-btn" @click="handleQuery">查询</el-button>
+          <el-button class="export-btn" :loading="exporting" @click="handleExport">导出 CSV</el-button>
         </div>
       </div>
     </div>
@@ -143,7 +144,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getQuotaSummary, getQuotaTransactions } from '@/api/quota'
+import { getQuotaSummary, getQuotaTransactions, exportQuotaTransactions } from '@/api/quota'
 import request from '@/utils/request'
 
 // 维度切换
@@ -349,6 +350,27 @@ onMounted(() => {
   fetchSummary()
   fetchTransactions()
 })
+
+const exporting = ref(false)
+
+const handleExport = async () => {
+  exporting.value = true
+  try {
+    const params = buildParams()
+    const blob = await exportQuotaTransactions(params)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `quota_transactions_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -544,6 +566,16 @@ onMounted(() => {
   border: none !important;
   font-weight: 600;
   box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+}
+
+.export-btn {
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  color: #10b981 !important;
+}
+
+.export-btn:hover {
+  background: rgba(16, 185, 129, 0.2) !important;
 }
 
 /* 深色 select */

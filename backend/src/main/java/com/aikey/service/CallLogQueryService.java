@@ -19,6 +19,7 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 调用日志查询服务
@@ -118,6 +119,49 @@ public class CallLogQueryService {
                 .clientIp(log.getClientIp())
                 .createdAt(log.getCreatedAt())
                 .channelName(channelName)
+                .isAutoMode(log.getIsAutoMode())
+                .selectedModel(log.getSelectedModel())
+                .selectionStrategy(log.getSelectionStrategy())
                 .build();
+    }
+
+    private static final int EXPORT_LIMIT = 10000;
+
+    /**
+     * 导出日志为 CSV 字符串（最多 EXPORT_LIMIT 条）
+     */
+    public String exportLogsCsv(CallLogQueryRequest req) {
+        req.setPage(1);
+        req.setSize(EXPORT_LIMIT);
+        Specification<CallLog> spec = buildSpec(req);
+
+        List<CallLog> logs = callLogRepository.findAll(
+                spec,
+                PageRequest.of(0, EXPORT_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"))
+        ).getContent();
+
+        String header = "时间,traceId,用户ID,模型,渠道ID,promptTokens,completionTokens,totalTokens,费用,响应时间(ms),状态,错误码";
+        String rows = logs.stream()
+                .map(log -> Stream.of(
+                        safe(log.getCreatedAt()),
+                        safe(log.getTraceId()),
+                        safe(log.getUserId()),
+                        safe(log.getRequestModel()),
+                        safe(log.getChannelId()),
+                        safe(log.getPromptTokens()),
+                        safe(log.getCompletionTokens()),
+                        safe(log.getTotalTokens()),
+                        safe(log.getCost()),
+                        safe(log.getResponseTime()),
+                        log.getStatus() != null && log.getStatus() == 1 ? "成功" : "失败",
+                        safe(log.getErrorCode())
+                ).map(Object::toString).collect(Collectors.joining(",")))
+                .collect(Collectors.joining("\n"));
+
+        return header + "\n" + rows;
+    }
+
+    private Object safe(Object val) {
+        return val == null ? "" : val;
     }
 }

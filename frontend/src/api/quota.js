@@ -8,6 +8,10 @@ export function getQuotaTransactions(params) {
   return request({ url: '/api/v1/quota/transactions', method: 'get', params })
 }
 
+export function exportQuotaTransactions(params) {
+  return request({ url: '/api/v1/quota/transactions/export', method: 'get', params, responseType: 'blob' })
+}
+
 export function rechargeQuota(data) {
   return request({ url: '/api/v1/quota/recharge', method: 'post', data })
 }

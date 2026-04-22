@@ -566,4 +566,47 @@ public class QuotaService {
         q.setParameter("id", id);
         return q.executeUpdate();
     }
+
+    // ===== 流水 CSV 导出 =====
+
+    private static final int TRANSACTION_EXPORT_LIMIT = 10000;
+
+    public String exportTransactionsCsv(String targetType, Long targetId, Long userId) {
+        PageRequest pageable = PageRequest.of(0, TRANSACTION_EXPORT_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<QuotaTransaction> page;
+        if (targetType != null && targetId != null) {
+            page = transactionRepository.findByTargetTypeAndTargetIdOrderByCreatedAtDesc(targetType, targetId, pageable);
+        } else if (userId != null) {
+            page = transactionRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable);
+        } else {
+            page = transactionRepository.findAll(pageable);
+        }
+
+        String header = "时间,流水ID,用户ID,虚拟KeyID,目标类型,目标ID,额度类型,交易类型,变动金额,变动前余额,变动后余额,备注";
+        String rows = page.getContent().stream()
+                .map(t -> String.join(",",
+                        safe(t.getCreatedAt()), safe(t.getId()), safe(t.getUserId()),
+                        safe(t.getVirtualKeyId()), safe(t.getTargetType()), safe(t.getTargetId()),
+                        safe(t.getQuotaType()), safe(t.getTransactionType()),
+                        safe(t.getAmount()), safe(t.getBalanceBefore()), safe(t.getBalanceAfter()),
+                        safeEscape(t.getDescription())))
+                .collect(Collectors.joining("\n"));
+
+        return header + "\n" + rows;
+    }
+
+    private String safe(Object val) {
+        return val == null ? "" : val.toString();
+    }
+
+    /** 含逗号的字段用双引号包裹 */
+    private String safeEscape(String val) {
+        if (val == null) return "";
+        if (val.contains(",") || val.contains("\"") || val.contains("\n")) {
+            return "\"" + val.replace("\"", "\"\"") + "\"";
+        }
+        return val;
+    }
 }
+

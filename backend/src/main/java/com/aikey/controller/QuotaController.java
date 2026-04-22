@@ -13,7 +13,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  * 额度管理接口
@@ -92,5 +97,25 @@ public class QuotaController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(quotaService.listTransactions(targetType, targetId, userId, page, size));
+    }
+
+    @GetMapping("/transactions/export")
+    @Operation(summary = "导出额度流水 CSV（最多10000条）")
+    public ResponseEntity<byte[]> exportTransactions(
+            @RequestParam(required = false) String targetType,
+            @RequestParam(required = false) Long targetId,
+            @RequestParam(required = false) Long userId) {
+
+        String csv = quotaService.exportTransactionsCsv(targetType, targetId, userId);
+        byte[] bom = new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
+        byte[] body = csv.getBytes(StandardCharsets.UTF_8);
+        byte[] result = new byte[bom.length + body.length];
+        System.arraycopy(bom, 0, result, 0, bom.length);
+        System.arraycopy(body, 0, result, bom.length, body.length);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=quota_transactions_export.csv")
+                .contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
+                .body(result);
     }
 }

@@ -38,4 +38,10 @@ public class CallLogVO {
     private LocalDateTime createdAt;
     /** 渠道名称（冗余，查询时补充） */
     private String channelName;
+    /** 是否自动选模（0=否，1=是） */
+    private Integer isAutoMode;
+    /** 最终选中的模型 */
+    private String selectedModel;
+    /** 调度策略 */
+    private String selectionStrategy;
 }
