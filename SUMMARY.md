@@ -1108,3 +1108,315 @@ Focus:
 ## 8. One-Sentence Takeaway
 
 **当前项目已进入「部署链路完全恢复、云端可正常登录」的阶段；下一步重点是收口 `admin` 身份漂移问题（从 bootstrap 超管链路中移除），再用真实账号验证企业管理员 / 团队管理员双视角。**
+
+---
+
+## 9. Pending Feature: 全局调度策略切换（2026-04-18）
+
+### 背景
+
+四种调度策略（轮询、加权轮询、最低延迟、最低成本）代码已全部实现，但 `GatewayOrchestrationService.java` 第 190 行硬编码为 `DispatchStrategyType.WEIGHTED`，运行时只走加权轮询。需要接入前端可切换的全局策略配置，作为比赛答辩创新点展示。
+
+### 方案：全局配置，最小改动
+
+不新建设置页面，在 Overview 总览页加策略选择器，后端用已有的 `system_configs` 表存一条记录。
+
+### 改动清单
+
+**后端（4 个文件）**
+
+1. **新建** `backend/src/main/java/com/aikey/entity/SystemConfig.java`
+   - 映射 `system_configs` 表，只需 id / configGroup / configKey / configValue 核心字段
+
+2. **新建** `backend/src/main/java/com/aikey/repository/SystemConfigRepository.java`
+   - 只需 `findByConfigGroupAndConfigKey(String group, String key)` 方法
+
+3. **新建** `backend/src/main/java/com/aikey/controller/DispatchConfigController.java`
+   - `GET /api/v1/dispatch/strategy` — 读取当前策略，默认 WEIGHTED
+   - `PUT /api/v1/dispatch/strategy` — 更新策略
+
+4. **修改** `backend/src/main/java/com/aikey/service/GatewayOrchestrationService.java`
+   - 注入 `SystemConfigRepository`
+   - 第 190 行从数据库读取 `configGroup="dispatch", configKey="strategy"`，替代硬编码
+   - 读不到时 fallback 为 WEIGHTED
+
+**数据库（1 个迁移）**
+
+5. **新建** `backend/src/main/resources/db/migration/V4__add_dispatch_strategy_config.sql`
+   - `INSERT INTO system_configs (config_group, config_key, config_value, config_type, description) VALUES ('dispatch', 'strategy', 'WEIGHTED', 'string', '全局调度策略');`
+
+**前端（2 个文件）**
+
+6. **新建** `frontend/src/api/dispatch.js`
+   - 封装 GET / PUT 调度策略接口
+
+7. **修改** `frontend/src/views/Overview.vue`
+   - 在总览页加 el-select 下拉框（加权轮询 / 轮询 / 最低延迟 / 最低成本）
+   - 页面加载时 GET 当前策略，切换时 PUT 更新
+
+### 不改动的文件
+
+- `DispatchService.java` — 已通过参数接收策略类型，无需改动
+- 四个策略实现类 — 已完整实现
+- `SecurityConfig` — 需确认 `/api/v1/dispatch/**` 是否在认证路径内
+
+### 验证方式
+
+1. 登录后在总览页看到策略选择器，默认「加权轮询」
+2. 切换为「最低延迟」，刷新页面后仍为「最低延迟」
+3. 发 API 调用，查看日志确认 `strategyUsed` 字段变为 `LOWEST_LATENCY`
+
+---
+
+## 5. v2.0 Phase 1 总结（2026-04-21）
+
+### 5.1 本轮完成的工作
+
+**T1：智谱渠道接入（核心任务）**
+
+| 子任务 | 状态 |
+|--------|------|
+| T1.1 智谱渠道种子数据（data.sql）| ✅ 完成 |
+| T1.2 ProxyForwardService 适配智谱 URL 规范 | ✅ 完成 |
+| T1.3 渠道连通性测试前端接入 | ✅ 完成 |
+
+**运行态阻塞修复（8 项）**
+
+| # | 问题 | 结果 |
+|---|------|------|
+| 1 | spring.sql.init.mode=always 每次重启清库 | ✅ 固定为 never |
+| 2 | 种子数据 quota=0 触发三层漏斗全拒绝 | ✅ 修复初始额度 |
+| 3 | team_members / projects 种子不完整 | ✅ 补齐所有 NOT NULL 字段 |
+| 4 | model_groups.models 格式不一致 | ✅ 服务层加 legacy 兼容 |
+| 5 | quota_transactions 表缺 target_type / target_id 列 | ✅ schema.sql + patch_v2.sql 补齐 |
+| 6 | GatewayOrchestrationService 用 stale 实体 save 覆盖额度 | ✅ 改为定向 updateLastUsedTime |
+| 7 | start.ps1 不应参与初始化 | ✅ 职责收口，仅做就绪检查 |
+| 8 | ChannelManagement.vue 编辑态 API Key 交互误导 | ✅ 增加已保存掩码提示 |
+
+### 5.2 当前系统状态
+
+**已验证可用**
+
+| 功能 | 验证方式 |
+|------|---------|
+| 虚拟 Key 鉴权网关 | curl Bearer 测试 |
+| 三层额度漏斗扣减 + 流水 | quota_transactions 三条记录 |
+| 智谱渠道代理转发（非流式）| Mock 联调通过 |
+| 渠道连通性测试 | /api/v1/channels/{id}/test |
+| 渠道管理 API Key CRUD | 编辑留空保持不变 |
+| 启动脚本（start.ps1）| 实跑输出符合预期 |
+
+**未完成 / 待验证**
+
+| 项 | 状态 | 说明 |
+|----|------|------|
+| 智谱真实 API Key 端到端 | ⚠️ 未验证 | Mock 通了，真实 Key 未跑 |
+| 流式支持（stream=true）| ❌ 未实现 | T2.1，当前直接返回 400 |
+| 日志导出 CSV | ❌ 未实现 | T3.1/T3.2 |
+| 告警引擎 | ❌ 未实现 | T4.1/T4.2 |
+
+### 5.3 核心调用链路（非流式，当前实现）
+
+```
+调用方 POST /v1/chat/completions (Bearer 虚拟Key)
+  → VirtualKeyAuthFilter (鉴权 + 黑名单)
+    → GatewayOrchestrationService (编排器)
+      → RateLimitService (QPM/QPD, Redis)
+      → QuotaService.checkQuotaWithFunnel (三层预检: VirtualKey → Team → Project)
+      → DispatchService.dispatch (4策略选渠道)
+      → ProxyForwardService.forwardChatCompletion
+          (AES解密 RealKey → buildUrl 构建目标URL → RestTemplate 转发)
+      → QuotaService.deductQuotaWithFunnel (三层原子扣减)
+      → CallLogService.recordAsync (异步写 call_logs + quota_transactions)
+```
+
+**关键：buildUrl 渠道类型判断**（T1.2 核心改动）
+
+```java
+boolean isZhipu = "zhipu".equalsIgnoreCase(channelType)
+    || normalizedBase.contains("/api/paas/v4");
+// 智谱：直接 baseUrl + path（不加 /v1）
+// OpenAI 兼容：baseUrl + /v1 + path
+```
+
+### 5.4 关键数据模型
+
+```
+Team → 创建 VirtualKey → 绑定 ModelGroup → 实际使用包含的 Channel
+                                              ↑
+                                         Channel 关联 RealKey (AES加密存储)
+```
+
+三层额度漏斗：`VirtualKey.quota_remaining` → `Team.quota_remaining` → `Project.quota_remaining`，任意一层不足即拒绝。
+
+### 5.5 接手后 P0 任务：真实 Key 端到端验证
+
+当前智谱渠道 base_url 指向本地 Mock，需换回真实地址：
+
+1. 渠道管理页 → 编辑「智谱AI」，base_url 改为 `https://open.bigmodel.cn/api/paas/v4`，填入真实 API Key
+2. 真实 Key 管理页 → 为该渠道新增真实 Key
+3. 新建虚拟 Key，绑定智谱模型分组，额度设非零
+4. 验证命令：
+
+```powershell
+$resp = Invoke-RestMethod -Method Post `
+  -Uri "http://127.0.0.1:8080/v1/chat/completions" `
+  -Headers @{ Authorization = "Bearer <虚拟Key>"; "Content-Type" = "application/json" } `
+  -Body '{"model":"glm-4.7-flash","messages":[{"role":"user","content":"你好"}]}'
+$resp.choices[0].message.content
+```
+
+5. 检查 call_logs 和 quota_transactions 是否有新记录
+
+### 5.6 下一步任务（按优先级）
+
+| 优先级 | 任务 |
+|--------|------|
+| P0 | 真实智谱 Key 端到端验证（参见 5.5）|
+| P1 | T2.1 流式 SSE 支持（stream=true 当前直接 400）|
+| P2 | T3.1 日志 CSV 导出 |
+| P3 | T4.1 告警规则 CRUD |
+
+### 5.7 本地快速启动
+
+```powershell
+# 首次或需重建数据库
+.\init-db.ps1
+
+# 日常启动
+.\start.ps1
+
+# 访问
+# 前端：http://localhost:5173
+# 后端：http://localhost:8080
+# Swagger：http://localhost:8080/swagger-ui/index.html
+# 默认账号：admin / admin123
+```
+
+> `start.ps1` 只检查就绪状态，不做任何初始化。数据库为空时提示先运行 `init-db.ps1`。
+
+---
+
+## 6. v2.0 Phase 2 总结（2026-04-21 ~ 04-22）
+
+### 6.1 本轮完成的工作
+
+**T2.1 SSE 流式转发（完成）**
+
+| 子任务 | 状态 |
+|--------|------|
+| GatewayController 增加流式分支，返回 SseEmitter | ✅ 完成 |
+| ProxyForwardService.forwardChatCompletionStream | ✅ 完成 |
+| GatewayOrchestrationService 删除 400 占位拦截，新增流式编排方法 | ✅ 完成 |
+| TokenManagement.vue「接入信息」弹窗 | ✅ 完成 |
+| deploy/nginx.conf SSE 支持（proxy_buffering off） | ✅ 完成 |
+| vite.config.js /v1 代理 | ✅ 完成 |
+
+**curl 端到端验证（已通）**
+
+```bash
+curl -N --max-time 25 -X POST http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk-e745a6b4ea3b469880485138f67e43bb" \
+  --data-binary @req.json
+# req.json: {"model":"glm-4.7","messages":[...],"stream":true}
+```
+
+- 返回 33KB SSE 数据流，`data: {...}` 格式逐行正确
+- 末行为 `data: [DONE]`
+- `call_logs` 有对应记录，`quota_transactions` 有三层扣减流水
+- 后端 PID 42340，持续运行于 8080
+
+**CC Switch 客户端验证（已搁置，不影响开发）**
+
+- CC Switch 选 `OpenAI Chat Completions API` 格式后仍报 502
+- 确认原因：CC Switch 内部走云端中转，不支持 localhost 直连，非后端问题
+- 不再追查此路径，以 curl 验证为准
+
+### 6.2 当前核心调用链路（含流式）
+
+```
+调用方 POST /v1/chat/completions (Bearer 虚拟Key, stream=true)
+  → VirtualKeyAuthFilter (鉴权 + 黑名单)
+    → GatewayController
+      → stream=true ? processChatCompletionStream() : processChatCompletion()
+
+非流式路径（原有，不变）：
+  → GatewayOrchestrationService.processChatCompletion
+    → (RateLimit → QuotaCheck → Dispatch → ProxyForward → Deduct → Log)
+    → ResponseEntity<ChatCompletionResponse>
+
+流式路径（T2.1 新增）：
+  → GatewayOrchestrationService.processChatCompletionStream
+    → 主线程同步预检：(RateLimit → QuotaCheck → Dispatch)
+    → 主线程取 VirtualKeyAuthContext（ThreadLocal，传给 async 避免丢失）
+    → SseEmitter(5min 超时) 立即返回给 Controller
+    → CompletableFuture.runAsync():
+        → ProxyForwardService.forwardChatCompletionStream
+          (AES解密 RealKey → HttpClient → BodyHandlers.ofLines() → emit 每行)
+        → 流结束：handleSuccess(合成 Response+UsageInfo) → Deduct + Log
+        → 流失败：handleFailure() → 推 error 事件 → emitter.complete()
+```
+
+### 6.3 关键参数（测试/接入必用）
+
+| 参数 | 值 |
+|------|-----|
+| 后端地址 | `http://localhost:8080` |
+| OpenAI 兼容端点 | `http://localhost:8080/v1` |
+| 测试用虚拟 Key | `sk-e745a6b4ea3b469880485138f67e43bb` |
+| 测试模型名（DB 中实际值）| `glm-4.7` |
+| SseEmitter 超时 | 5 分钟 |
+| SSE 实现 | Java 11 原生 HttpClient（Zero new Maven deps）|
+
+### 6.4 当前系统状态
+
+| 功能 | 状态 |
+|------|------|
+| 非流式网关链路 | ✅ 已验证 |
+| 流式 SSE 转发 | ✅ curl 已验证 |
+| 三层额度漏斗（含流式） | ✅ quota_transactions 有记录 |
+| 智谱渠道代理（非流式 Mock）| ✅ 已验证 |
+| 智谱真实 Key 端到端 | ⚠️ 未验证（真实 Key 需在渠道管理页手动录入） |
+| 日志导出 CSV | ❌ T3.1 未开始 |
+| Overview 首页真实数据 | ❌ T5.1/T5.2 未开始 |
+| 告警规则 CRUD | ❌ T4.1 未开始 |
+
+### 6.5 下一步任务（Phase 3/4/5，可并行）
+
+按计划文档，Phase 3 / Phase 4 / Phase 5 彼此无依赖，可任意顺序推进：
+
+| 优先级 | 任务 | 估计改动范围 |
+|--------|------|------------|
+| 推荐先做 | T5.1 + T5.2 Overview 真实数据 | 新增 DashboardController + Service，修改 Overview.vue |
+| 推荐先做 | T3.1 日志导出 CSV | CallLogController 新增 export 端点，RequestLog.vue 加按钮 |
+| 中 | T4.1 告警规则 CRUD | 新建 Entity/Repo/Service/Controller + AlertManagement.vue |
+| 中 | T3.2 流水导出 | 与 T3.1 同模式，QuotaFlow.vue |
+| 低 | T3.3 日志详情增强 | 纯前端弹窗 |
+| 低 | T4.2 告警引擎 | 定时任务，T4.1 完成后 |
+| 低 | T4.3 告警通知展示 | 铃铛 Badge，T4.2 完成后 |
+| 收口 | T7.3 清理 /skills 路由 | 与 T4.1 一起改 router + MainLayout |
+
+### 6.6 PowerShell curl 测试规范（避免坑）
+
+```powershell
+# 1. 把 JSON 写到临时文件（不能在 PowerShell 里内联 JSON 给 curl.exe）
+'{"model":"glm-4.7","messages":[{"role":"user","content":"你好"}],"stream":true}' `
+  | Out-File -Encoding utf8 -FilePath "$env:TEMP\req.json" -NoNewline
+
+# 2. 非流式测试
+curl.exe -s -X POST "http://localhost:8080/v1/chat/completions" `
+  -H "Authorization: Bearer sk-e745a6b4ea3b469880485138f67e43bb" `
+  -H "Content-Type: application/json" `
+  --data-binary "@$env:TEMP\req.json"
+
+# 3. 流式测试（-N 关闭缓冲）
+curl.exe -N --max-time 25 -s -X POST "http://localhost:8080/v1/chat/completions" `
+  -H "Authorization: Bearer sk-e745a6b4ea3b469880485138f67e43bb" `
+  -H "Content-Type: application/json" `
+  --data-binary "@$env:TEMP\req.json"
+```
+
+> 坑：`model_code` 必须用 DB 里的实际值。查询命令：
+> ```sql
+> SELECT model_code FROM models WHERE deleted=0;
+> ```

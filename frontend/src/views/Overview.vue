@@ -18,11 +18,11 @@
             <el-icon :size="28"><ChatDotRound /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">128,456</div>
+            <div class="stat-value">{{ formattedCalls }}</div>
             <div class="stat-label">今日调用次数</div>
-            <div class="stat-trend up">
-              <el-icon><ArrowUp /></el-icon>
-              <span>+12.5%</span>
+            <div :class="['stat-trend', trendClass(stats.todayCallsTrend)]">
+              <el-icon><ArrowUp v-if="stats.todayCallsTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <span>{{ trendText(stats.todayCallsTrend) }}</span>
             </div>
           </div>
         </div>
@@ -35,11 +35,11 @@
             <el-icon :size="24"><Coin /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">2.4M</div>
+            <div class="stat-value">{{ formattedTokens }}</div>
             <div class="stat-label">Token消耗量</div>
-            <div class="stat-trend up">
-              <el-icon><ArrowUp /></el-icon>
-              <span>+8.3%</span>
+            <div :class="['stat-trend', trendClass(stats.todayTokensTrend)]">
+              <el-icon><ArrowUp v-if="stats.todayTokensTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <span>{{ trendText(stats.todayTokensTrend) }}</span>
             </div>
           </div>
         </div>
@@ -52,11 +52,11 @@
             <el-icon :size="24"><Wallet /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">¥1,280</div>
+            <div class="stat-value">{{ formattedCost }}</div>
             <div class="stat-label">今日费用</div>
-            <div class="stat-trend down">
-              <el-icon><ArrowDown /></el-icon>
-              <span>-5.2%</span>
+            <div :class="['stat-trend', trendClass(stats.todayCostTrend)]">
+              <el-icon><ArrowUp v-if="stats.todayCostTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <span>{{ trendText(stats.todayCostTrend) }}</span>
             </div>
           </div>
         </div>
@@ -69,11 +69,11 @@
             <el-icon :size="24"><Timer /></el-icon>
           </div>
           <div class="stat-info">
-            <div class="stat-value">156ms</div>
+            <div class="stat-value">{{ formattedResponseTime }}</div>
             <div class="stat-label">平均响应时间</div>
-            <div class="stat-trend up">
-              <el-icon><ArrowUp /></el-icon>
-              <span>+2.1%</span>
+            <div :class="['stat-trend', trendClass(stats.avgResponseTimeTrend)]">
+              <el-icon><ArrowUp v-if="stats.avgResponseTimeTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <span>{{ trendText(stats.avgResponseTimeTrend) }}</span>
             </div>
           </div>
         </div>
@@ -173,13 +173,72 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useThemeStore } from '@/stores/theme.js'
+import { getDashboardOverview } from '@/api/dashboard.js'
 
 const themeStore = useThemeStore()
 
+const stats = ref({
+  todayCalls: 0,
+  todayTokens: 0,
+  todayCost: 0,
+  avgResponseTime: 0,
+  todayCallsTrend: 0,
+  todayTokensTrend: 0,
+  todayCostTrend: 0,
+  avgResponseTimeTrend: 0
+})
+
+const loading = ref(true)
+
+const formattedCalls = computed(() => {
+  const n = stats.value.todayCalls
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+  return n.toLocaleString()
+})
+
+const formattedTokens = computed(() => {
+  const n = stats.value.todayTokens
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+  return n.toLocaleString()
+})
+
+const formattedCost = computed(() => {
+  return '¥' + Number(stats.value.todayCost).toFixed(2)
+})
+
+const formattedResponseTime = computed(() => {
+  return stats.value.avgResponseTime + 'ms'
+})
+
+function trendClass(val) {
+  return val >= 0 ? 'up' : 'down'
+}
+
+function trendText(val) {
+  const sign = val >= 0 ? '+' : ''
+  return sign + val + '%'
+}
+
+async function loadStats() {
+  try {
+    loading.value = true
+    const res = await getDashboardOverview()
+    if (res.code === 200) {
+      stats.value = res.data
+    }
+  } catch (e) {
+    // 静默失败，保留占位 0
+  } finally {
+    loading.value = false
+  }
+}
+
 onMounted(() => {
   themeStore.initTheme()
+  loadStats()
 })
 </script>
 

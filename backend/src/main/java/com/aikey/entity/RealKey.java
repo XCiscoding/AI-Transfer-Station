@@ -53,6 +53,9 @@ public class RealKey {
     @Column(name = "remark", length = 500)
     private String remark;
 
+    @Column(name = "base_url", length = 500)
+    private String baseUrl;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

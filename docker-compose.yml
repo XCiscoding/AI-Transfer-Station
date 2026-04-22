@@ -19,8 +19,8 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./backend/src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./backend/src/main/resources/db/data.sql:/docker-entrypoint-initdb.d/02-data.sql:ro
+      # 不挂载 init 脚本：schema.sql 含 DROP TABLE，挂载后新 volume 首次启动会清空所有数据
+      # 数据库初始化请使用 .\init-db.ps1
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci

@@ -29,4 +29,17 @@ public class ChannelCreateRequest {
     private Integer priority = 0;
 
     private String remark;
+
+    // 扩展配置字段（存储在 config JSON 列）
+    private String provider;
+
+    private String apiVersion;
+
+    private Integer maxTokens = 4096;
+
+    private Integer maxRpm = 60;
+
+    private Integer maxTpm = 90000;
+
+    private Integer timeout = 30;
 }

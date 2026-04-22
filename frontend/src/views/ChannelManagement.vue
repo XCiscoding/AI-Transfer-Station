@@ -33,11 +33,14 @@
             @change="handleSearch"
             class="type-select"
           >
-            <el-option label="LLM" value="LLM" />
-            <el-option label="Image" value="Image" />
-            <el-option label="Audio" value="Audio" />
-            <el-option label="Video" value="Video" />
-            <el-option label="Embedding" value="Embedding" />
+            <el-option label="OpenAI" value="openai" />
+            <el-option label="Claude" value="claude" />
+            <el-option label="通义千问" value="qwen" />
+            <el-option label="文心一言" value="wenxin" />
+            <el-option label="豆包" value="doubao" />
+            <el-option label="Gemini" value="gemini" />
+            <el-option label="DeepSeek" value="deepseek" />
+            <el-option label="智谱AI" value="zhipu" />
           </el-select>
         </el-form-item>
 
@@ -98,7 +101,11 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="provider" label="提供商" min-width="120" show-overflow-tooltip />
+        <el-table-column label="提供商" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.provider || getProviderName(row.channelType) }}
+          </template>
+        </el-table-column>
 
         <el-table-column prop="apiKeyMask" label="API Key" width="180" show-overflow-tooltip>
           <template #default="{ row }">
@@ -120,6 +127,20 @@
           </template>
         </el-table-column>
 
+        <el-table-column label="健康状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="getHealthTagType(row.healthStatus, row.healthCheckTime)" size="small">
+              {{ getHealthStatusText(row.healthStatus, row.healthCheckTime) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="最近检测" width="170" align="center">
+          <template #default="{ row }">
+            {{ formatTime(row.healthCheckTime) }}
+          </template>
+        </el-table-column>
+
         <el-table-column prop="createdAt" label="创建时间" width="170" sortable="custom" align="center">
           <template #default="{ row }">
             {{ formatTime(row.createdAt) }}
@@ -135,7 +156,7 @@
               <el-button type="info" link size="small" @click="handleOpenKeys(row)">
                 <el-icon><Key /></el-icon>Keys
               </el-button>
-              <el-button type="success" link size="small" @click="handleTest(row)">
+              <el-button type="success" link size="small" :loading="row.testLoading" @click="handleTest(row)">
                 <el-icon><Connection /></el-icon>测试
               </el-button>
               <el-button type="danger" link size="small" @click="handleDelete(row)">
@@ -199,11 +220,14 @@
           <el-col :span="12">
             <el-form-item label="渠道类型" prop="channelType">
               <el-select v-model="formData.channelType" placeholder="请选择类型" style="width: 100%">
-                <el-option label="LLM (大语言模型)" value="LLM" />
-                <el-option label="Image (图像生成)" value="Image" />
-                <el-option label="Audio (语音处理)" value="Audio" />
-                <el-option label="Video (视频处理)" value="Video" />
-                <el-option label="Embedding (向量嵌入)" value="Embedding" />
+                <el-option label="OpenAI" value="openai" />
+                <el-option label="Claude" value="claude" />
+                <el-option label="通义千问" value="qwen" />
+                <el-option label="文心一言" value="wenxin" />
+                <el-option label="豆包" value="doubao" />
+                <el-option label="Gemini" value="gemini" />
+                <el-option label="DeepSeek" value="deepseek" />
+                <el-option label="智谱AI" value="zhipu" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -223,8 +247,11 @@
             v-model="formData.apiKey"
             type="password"
             show-password
-            placeholder="请输入API Key"
+            :placeholder="apiKeyPlaceholder"
           />
+          <div v-if="isEdit && currentApiKeyMask" class="api-key-hint">
+            当前已保存：{{ currentApiKeyMask }}。留空表示保持不变。
+          </div>
         </el-form-item>
 
         <el-row :gutter="20">
@@ -356,9 +383,16 @@
             </template>
           </el-table-column>
 
-          <el-table-column label="Key值" min-width="200" show-overflow-tooltip>
+          <el-table-column label="Key值" min-width="180" show-overflow-tooltip>
             <template #default="{ row }">
               <span class="key-mask">{{ row.keyMask || '***' }}</span>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="接口地址" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.baseUrl" class="key-url">{{ row.baseUrl }}</span>
+              <span v-else class="key-url-default">渠道默认</span>
             </template>
           </el-table-column>
 
@@ -420,6 +454,15 @@
             show-password
             :placeholder="isRealKeyEdit ? '留空则不修改' : '请输入真实API Key'"
           />
+        </el-form-item>
+
+        <el-form-item label="接口地址">
+          <el-input
+            v-model="realKeyFormData.baseUrl"
+            placeholder="留空则使用渠道默认地址"
+            clearable
+          />
+          <div class="form-hint">覆盖渠道 Base URL，适合同一渠道不同代理节点</div>
         </el-form-item>
 
         <el-form-item label="备注">
@@ -639,7 +682,8 @@ import {
   getChannelList,
   createChannel,
   updateChannel,
-  deleteChannel
+  deleteChannel,
+  testChannel
 } from '@/api/channel'
 import {
   getRealKeyList,
@@ -687,6 +731,15 @@ const dialogVisible = ref(false)
 const dialogTitle = computed(() => isEdit.value ? '编辑渠道' : '新增渠道')
 const isEdit = ref(false)
 const currentEditId = ref(null)
+const currentApiKeyMask = ref('')
+const apiKeyPlaceholder = computed(() => {
+  if (!isEdit.value) {
+    return '请输入API Key'
+  }
+  return currentApiKeyMask.value
+    ? '留空则保持当前已保存的 API Key'
+    : '请输入API Key'
+})
 const submitLoading = ref(false)
 
 // 表单数据
@@ -728,8 +781,21 @@ const formRules = {
     { type: 'url', message: '请输入有效的URL地址', trigger: 'blur' }
   ],
   apiKey: [
-    { required: true, message: '请输入API Key', trigger: 'blur' },
-    { min: 10, message: 'API Key长度至少10个字符', trigger: 'blur' }
+    {
+      validator: (rule, value, callback) => {
+        const normalizedValue = typeof value === 'string' ? value.trim() : ''
+        if (!isEdit.value && !normalizedValue) {
+          callback(new Error('请输入API Key'))
+          return
+        }
+        if (normalizedValue && normalizedValue.length < 10) {
+          callback(new Error('API Key长度至少10个字符'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
   ]
 }
 
@@ -786,7 +852,8 @@ async function fetchChannelList() {
     if (res.code === 200 && res.data) {
       tableData.value = (res.data.records || []).map(item => ({
         ...item,
-        statusLoading: false
+        statusLoading: false,
+        testLoading: false
       }))
       pagination.total = res.data.total || 0
     } else {
@@ -806,7 +873,7 @@ async function fetchChannelList() {
 async function handleCreate() {
   submitLoading.value = true
   try {
-    const data = { ...formData }
+    const data = buildChannelPayload()
     const res = await createChannel(data)
 
     if (res.code === 200) {
@@ -832,13 +899,14 @@ async function handleUpdate() {
 
   submitLoading.value = true
   try {
-    const data = { ...formData }
+    const data = buildChannelPayload()
     const res = await updateChannel(currentEditId.value, data)
 
     if (res.code === 200) {
-      ElMessage.success('渠道更新成功')
+      const newMask = res.data?.apiKeyMask
+      ElMessage.success(newMask ? `渠道更新成功，API Key 已保存：${newMask}` : '渠道更新成功')
       dialogVisible.value = false
-      fetchChannelList()
+      await fetchChannelList()
     } else {
       ElMessage.error(res.message || '更新失败')
     }
@@ -948,12 +1016,13 @@ function handleAdd() {
 function handleEdit(row) {
   isEdit.value = true
   currentEditId.value = row.id
+  currentApiKeyMask.value = row.apiKeyMask || ''
   // 填充表单数据（注意：apiKeyMask是脱敏的，编辑时不回显真实key）
   Object.assign(formData, {
     channelName: row.channelName,
     channelCode: row.channelCode,
     channelType: row.channelType,
-    provider: row.provider,
+    provider: row.provider || getProviderName(row.channelType),
     baseUrl: row.baseUrl,
     apiKey: '', // 编辑时清空API Key，需要重新输入
     apiVersion: row.apiVersion || '',
@@ -1030,15 +1099,30 @@ async function handleStatusChange(row, newStatus) {
 }
 
 /**
- * 连通性测试（预留接口）
+ * 连通性测试
  */
-function handleTest(row) {
-  ElMessage.info(`正在测试 ${row.provider} (${row.channelName}) 的连通性...`)
-  // TODO: 实现真实的连通性测试逻辑
-  // 可以调用后端专门的测试接口
-  setTimeout(() => {
-    ElMessage.success('连通性测试通过 ✓')
-  }, 1500)
+async function handleTest(row) {
+  row.testLoading = true
+  try {
+    ElMessage.info(`正在测试 ${row.provider || getProviderName(row.channelType)}（${row.channelName}）的连通性...`)
+    const res = await testChannel(row.id)
+
+    if (res.code === 200) {
+      if (res.data === true) {
+        ElMessage.success('连通性测试通过')
+      } else {
+        ElMessage.warning('连通性测试失败，请检查 Base URL 或 API Key')
+      }
+      await fetchChannelList()
+    } else {
+      ElMessage.error(res.message || '连通性测试失败')
+    }
+  } catch (error) {
+    console.error('连通性测试失败:', error)
+    ElMessage.error(error.message || '连通性测试失败')
+  } finally {
+    row.testLoading = false
+  }
 }
 
 // ==================== 工具方法 ====================
@@ -1047,6 +1131,7 @@ function handleTest(row) {
  * 重置表单数据
  */
 function resetFormData() {
+  currentApiKeyMask.value = ''
   Object.assign(formData, {
     channelName: '',
     channelCode: '',
@@ -1064,6 +1149,19 @@ function resetFormData() {
   })
   // 重置验证状态
   formRef.value?.resetFields()
+}
+
+function buildChannelPayload() {
+  const payload = {
+    ...formData,
+    apiKey: typeof formData.apiKey === 'string' ? formData.apiKey.trim() : ''
+  }
+
+  if (isEdit.value && !payload.apiKey) {
+    delete payload.apiKey
+  }
+
+  return payload
 }
 
 /**
@@ -1086,13 +1184,44 @@ function formatTime(timeStr) {
  */
 function getTypeTagType(type) {
   const typeMap = {
-    'LLM': '',
-    'Image': 'success',
-    'Audio': 'warning',
-    'Video': 'danger',
-    'Embedding': 'info'
+    openai: '',
+    claude: 'success',
+    qwen: 'warning',
+    wenxin: 'warning',
+    doubao: 'danger',
+    gemini: 'info',
+    deepseek: 'success',
+    zhipu: 'danger'
   }
   return typeMap[type] || 'info'
+}
+
+function getProviderName(type) {
+  const providerMap = {
+    openai: 'OpenAI',
+    claude: 'Anthropic',
+    qwen: '阿里云',
+    wenxin: '百度',
+    doubao: '字节跳动',
+    gemini: 'Google',
+    deepseek: 'DeepSeek',
+    zhipu: '智谱AI'
+  }
+  return providerMap[type] || '-'
+}
+
+function getHealthStatusText(healthStatus, healthCheckTime) {
+  if (!healthCheckTime) {
+    return '未检测'
+  }
+  return healthStatus === 1 ? '健康' : '异常'
+}
+
+function getHealthTagType(healthStatus, healthCheckTime) {
+  if (!healthCheckTime) {
+    return 'info'
+  }
+  return healthStatus === 1 ? 'success' : 'danger'
 }
 
 // ==================== 真实Key管理 ====================
@@ -1112,6 +1241,7 @@ const realKeyFormRef = ref()
 const realKeyFormData = reactive({
   keyName: '',
   keyValue: '',
+  baseUrl: '',
   remark: ''
 })
 
@@ -1151,6 +1281,7 @@ async function fetchRealKeyList() {
     }
   } catch (error) {
     console.error('获取Key列表失败:', error)
+    ElMessage.error('获取Key列表失败，请刷新重试')
   } finally {
     realKeyLoading.value = false
   }
@@ -1159,7 +1290,7 @@ async function fetchRealKeyList() {
 function handleAddRealKey() {
   isRealKeyEdit.value = false
   currentRealKeyEditId.value = null
-  Object.assign(realKeyFormData, { keyName: '', keyValue: '', remark: '' })
+  Object.assign(realKeyFormData, { keyName: '', keyValue: '', baseUrl: '', remark: '' })
   realKeyDialogVisible.value = true
 }
 
@@ -1169,6 +1300,7 @@ function handleEditRealKey(row) {
   Object.assign(realKeyFormData, {
     keyName: row.keyName,
     keyValue: '',
+    baseUrl: row.baseUrl || '',
     remark: row.remark || ''
   })
   realKeyDialogVisible.value = true
@@ -1181,7 +1313,7 @@ function handleRealKeySubmit() {
     try {
       let res
       if (isRealKeyEdit.value) {
-        const data = { keyName: realKeyFormData.keyName, remark: realKeyFormData.remark }
+        const data = { keyName: realKeyFormData.keyName, baseUrl: realKeyFormData.baseUrl, remark: realKeyFormData.remark }
         if (realKeyFormData.keyValue) data.keyValue = realKeyFormData.keyValue
         res = await updateRealKey(currentRealKeyEditId.value, data)
       } else {
@@ -1189,6 +1321,7 @@ function handleRealKeySubmit() {
           channelId: currentChannelId.value,
           keyName: realKeyFormData.keyName,
           keyValue: realKeyFormData.keyValue,
+          baseUrl: realKeyFormData.baseUrl || undefined,
           remark: realKeyFormData.remark
         })
       }
@@ -1713,6 +1846,13 @@ function handleGroupSubmit() {
   color: rgba(248, 250, 252, 0.35);
 }
 
+.api-key-hint {
+  margin-top: 8px;
+  color: rgba(248, 250, 252, 0.55);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .channel-form :deep(.el-textarea__inner) {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -1852,6 +1992,25 @@ function handleGroupSubmit() {
   background: rgba(255, 255, 255, 0.04);
   padding: 2px 8px;
   border-radius: 4px;
+}
+
+.key-url {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.75);
+  word-break: break-all;
+}
+
+.key-url-default {
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.55);
+  font-style: italic;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.7);
+  margin-top: 4px;
+  line-height: 1.4;
 }
 
 /* 响应式布局 */

@@ -10,7 +10,8 @@ import com.aikey.entity.ModelGroup;
 import com.aikey.exception.BusinessException;
 import com.aikey.repository.ModelGroupRepository;
 import com.aikey.repository.ModelRepository;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.aikey.entity.Model;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 import java.util.stream.Collectors;
 
 /**
@@ -150,13 +152,13 @@ public class ModelGroupService {
         ModelGroup group = modelGroupRepository.findByIdAndDeleted(groupId, 0)
                 .orElseThrow(() -> new BusinessException("模型分组不存在：" + groupId));
 
-        List<Long> modelIds = parseIds(group.getModelIds());
-        if (modelIds.isEmpty()) {
+        List<Model> models = resolveModelsForChannels(group.getModelIds());
+        if (models.isEmpty()) {
             return new ArrayList<>();
         }
 
         Map<Long, ChannelVO> channelMap = new LinkedHashMap<>();
-        modelRepository.findAllById(modelIds).forEach(model -> {
+        models.forEach(model -> {
             if (model == null || model.getDeleted() == 1 || model.getStatus() != 1) {
                 return;
             }
@@ -187,12 +189,12 @@ public class ModelGroupService {
     // ===== 工具：转 VO =====
 
     private ModelGroupVO convertToVO(ModelGroup group) {
-        List<Long> modelIds = parseIds(group.getModelIds());
+        List<Model> resolvedModels = resolveModelsForView(group.getModelIds());
+        List<Long> modelIds = resolvedModels.stream()
+            .map(Model::getId)
+            .collect(Collectors.toList());
 
-        // 查询模型详情，不存在的跳过
-        List<ModelGroupVO.ModelSimpleVO> models = modelIds.stream()
-                .map(mid -> modelRepository.findById(mid).orElse(null))
-                .filter(m -> m != null && m.getDeleted() == 0)
+        List<ModelGroupVO.ModelSimpleVO> models = resolvedModels.stream()
                 .map(m -> ModelGroupVO.ModelSimpleVO.builder()
                         .id(m.getId())
                         .modelName(m.getModelName())
@@ -223,10 +225,103 @@ public class ModelGroupService {
     private List<Long> parseIds(String json) {
         if (!StringUtils.hasText(json)) return new ArrayList<>();
         try {
-            return objectMapper.readValue(json, new TypeReference<List<Long>>() {});
+            JsonNode root = objectMapper.readTree(json);
+            if (!root.isArray()) {
+                return new ArrayList<>();
+            }
+
+            List<Long> ids = new ArrayList<>();
+            root.forEach(node -> {
+                if (node.canConvertToLong()) {
+                    ids.add(node.longValue());
+                }
+            });
+            return ids;
         } catch (Exception e) {
             log.warn("解析模型ID列表失败，原始值：{}", json);
             return new ArrayList<>();
         }
+    }
+
+    private List<String> parseCodes(String json) {
+        if (!StringUtils.hasText(json)) return new ArrayList<>();
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (!root.isArray()) {
+                return new ArrayList<>();
+            }
+
+            List<String> codes = new ArrayList<>();
+            root.forEach(node -> {
+                if (node.isTextual() && StringUtils.hasText(node.asText())) {
+                    codes.add(node.asText());
+                }
+            });
+            return codes;
+        } catch (Exception e) {
+            log.warn("解析模型编码列表失败，原始值：{}", json);
+            return new ArrayList<>();
+        }
+    }
+
+    private List<Model> resolveModelsForView(String rawModels) {
+        List<Long> modelIds = parseIds(rawModels);
+        if (!modelIds.isEmpty()) {
+            return modelIds.stream()
+                    .map(mid -> modelRepository.findById(mid).orElse(null))
+                    .filter(model -> model != null && model.getDeleted() == 0)
+                    .collect(Collectors.toList());
+        }
+
+        List<String> modelCodes = parseCodes(rawModels);
+        if (modelCodes.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        return pickOneModelPerCode(modelCodes, modelRepository.findByModelCodeInAndDeleted(modelCodes, 0));
+    }
+
+    private List<Model> resolveModelsForChannels(String rawModels) {
+        List<Long> modelIds = parseIds(rawModels);
+        if (!modelIds.isEmpty()) {
+            return modelIds.stream()
+                    .map(mid -> modelRepository.findById(mid).orElse(null))
+                    .filter(model -> model != null && model.getDeleted() == 0 && model.getStatus() == 1)
+                    .collect(Collectors.toList());
+        }
+
+        List<String> modelCodes = parseCodes(rawModels);
+        if (modelCodes.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<String, List<Model>> groupedModels = modelRepository
+                .findByModelCodeInAndStatusAndDeleted(modelCodes, 1, 0)
+                .stream()
+                .collect(Collectors.groupingBy(Model::getModelCode, LinkedHashMap::new, Collectors.toList()));
+
+        return modelCodes.stream()
+                .flatMap(code -> groupedModels.getOrDefault(code, List.of()).stream())
+                .collect(Collectors.toList());
+    }
+
+    private List<Model> pickOneModelPerCode(List<String> modelCodes, List<Model> models) {
+        Map<String, List<Model>> groupedModels = models.stream()
+                .collect(Collectors.groupingBy(Model::getModelCode, LinkedHashMap::new, Collectors.toList()));
+
+        return IntStream.range(0, modelCodes.size())
+                .mapToObj(modelCodes::get)
+                .map(code -> groupedModels.getOrDefault(code, List.of()).stream()
+                        .sorted((left, right) -> {
+                            int statusCompare = Integer.compare(right.getStatus(), left.getStatus());
+                            if (statusCompare != 0) {
+                                return statusCompare;
+                            }
+                            return Long.compare(left.getId(), right.getId());
+                        })
+                        .findFirst()
+                        .orElse(null))
+                .filter(model -> model != null)
+                .collect(Collectors.toList());
     }
 }

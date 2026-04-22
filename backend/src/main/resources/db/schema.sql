@@ -228,6 +228,7 @@ CREATE TABLE `real_keys` (
   `expire_time` DATETIME DEFAULT NULL COMMENT '过期时间',
   `usage_count` BIGINT NOT NULL DEFAULT 0 COMMENT '使用次数',
   `last_used_time` DATETIME DEFAULT NULL COMMENT '最后使用时间',
+  `base_url` VARCHAR(500) DEFAULT NULL COMMENT 'Key对应接口地址，留空则使用渠道默认地址',
   `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -335,7 +336,9 @@ CREATE TABLE `quota_transactions` (
   `virtual_key_id` BIGINT DEFAULT NULL COMMENT '虚拟Key ID',
   `call_log_id` BIGINT DEFAULT NULL COMMENT '调用日志ID',
   `quota_type` VARCHAR(20) NOT NULL COMMENT '额度类型：token, count, amount',
-  `transaction_type` VARCHAR(20) NOT NULL COMMENT '交易类型：consume, recharge, refund, adjust',
+  `transaction_type` VARCHAR(20) NOT NULL COMMENT '交易类型：consume, recharge, refund, adjust, reset',
+  `target_type` VARCHAR(20) NOT NULL COMMENT '被操作对象类型：virtual_key, team, project',
+  `target_id` BIGINT NOT NULL COMMENT '被操作对象ID',
   `amount` DECIMAL(20, 2) NOT NULL COMMENT '变动金额',
   `balance_before` DECIMAL(20, 2) NOT NULL COMMENT '变动前余额',
   `balance_after` DECIMAL(20, 2) NOT NULL COMMENT '变动后余额',
@@ -345,6 +348,7 @@ CREATE TABLE `quota_transactions` (
   KEY `idx_user_id` (`user_id`),
   KEY `idx_virtual_key_id` (`virtual_key_id`),
   KEY `idx_call_log_id` (`call_log_id`),
+  KEY `idx_target` (`target_type`, `target_id`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='额度流水表';
 

@@ -35,4 +35,6 @@ public class RealKeyVO {
     private LocalDateTime lastUsedTime;
 
     private LocalDateTime createdAt;
+
+    private String baseUrl;    // Key 级别接口地址
 }

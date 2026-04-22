@@ -29,6 +29,8 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 网关编排服务
@@ -54,8 +56,100 @@ public class GatewayOrchestrationService {
 
     private static final int MAX_RETRY = 3;
 
-    /**
-     * 处理Chat Completion请求的完整链路
+    /**     * 处理流式 Chat Completion 请求（SSE）
+     *
+     * <p>同步执行鉴权、权限、限流、额度预检、调度，然后异步转发流式响应。</p>
+     *
+     * @param request   请求体
+     * @param clientIp  客户端 IP
+     * @param userAgent 客户端 User-Agent
+     * @return SseEmitter，由 Spring MVC 自动处理流式响应
+     */
+    public SseEmitter processChatCompletionStream(ChatCompletionRequest request,
+                                                   String clientIp,
+                                                   String userAgent) {
+        String traceId = UUID.randomUUID().toString().replace("-", "");
+        long startTime = System.currentTimeMillis();
+
+        // 必须在主线程（ThreadLocal 有效期内）获取虚拟Key
+        VirtualKey virtualKey = VirtualKeyAuthContext.get();
+        if (virtualKey == null) {
+            throw new BusinessException(401, "Authentication required.");
+        }
+
+        // 前置检查（同步）
+        checkModelPermission(virtualKey, request.getModel());
+        rateLimitService.checkRateLimit(virtualKey);
+        quotaService.checkQuotaWithFunnel(virtualKey);
+
+        // 调度（同步，目前流式不做故障转移）
+        Set<Long> excludedChannelIds = new HashSet<>();
+        DispatchResult dispatchResult = resolveDispatchResult(virtualKey, request.getModel(), excludedChannelIds);
+
+        SseEmitter emitter = new SseEmitter(5 * 60 * 1000L);
+
+        // final 引用，供 lambda 捕获
+        final VirtualKey finalVirtualKey = virtualKey;
+        final DispatchResult finalDispatch = dispatchResult;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                UsageInfo usage = proxyForwardService.forwardChatCompletionStream(
+                        finalDispatch.getChannel().getBaseUrl(),
+                        finalDispatch.getChannel().getChannelType(),
+                        finalDispatch.getRealKey(),
+                        request,
+                        emitter
+                );
+
+                long elapsed = System.currentTimeMillis() - startTime;
+
+                // 记录渠道成功统计
+                dispatchService.recordSuccess(finalDispatch.getChannel(), (int) elapsed);
+                try {
+                    channelRepository.save(finalDispatch.getChannel());
+                } catch (Exception e) {
+                    log.warn("保存渠道统计失败: {}", e.getMessage());
+                }
+
+                // 额度扣减 + 日志记录
+                ChatCompletionResponse synthetic = new ChatCompletionResponse();
+                synthetic.setUsage(usage);
+                handleSuccess(finalVirtualKey, finalDispatch, synthetic, traceId, clientIp, userAgent, (int) elapsed, request.getModel());
+
+            } catch (BusinessException be) {
+                long elapsed = System.currentTimeMillis() - startTime;
+                dispatchService.recordFailure(finalDispatch.getChannel());
+                try {
+                    channelRepository.save(finalDispatch.getChannel());
+                } catch (Exception e) {
+                    log.warn("保存渠道失败统计异常: {}", e.getMessage());
+                }
+                handleFailure(finalVirtualKey, finalDispatch, be, traceId, clientIp, userAgent, (int) elapsed, request.getModel());
+                try {
+                    emitter.send(SseEmitter.event()
+                            .data("{\"error\":{\"message\":\"" + be.getMessage() + "\",\"code\":" + be.getCode() + "}}"));
+                    emitter.complete();
+                } catch (Exception ignored) { }
+            } catch (Exception e) {
+                long elapsed = System.currentTimeMillis() - startTime;
+                dispatchService.recordFailure(finalDispatch.getChannel());
+                try {
+                    channelRepository.save(finalDispatch.getChannel());
+                } catch (Exception ex) {
+                    log.warn("保存渠道失败统计异常: {}", ex.getMessage());
+                }
+                handleFailure(finalVirtualKey, finalDispatch, e, traceId, clientIp, userAgent, (int) elapsed, request.getModel());
+                try {
+                    emitter.completeWithError(e);
+                } catch (Exception ignored) { }
+            }
+        });
+
+        return emitter;
+    }
+
+    /**     * 处理Chat Completion请求的完整链路
      *
      * @param request   请求体
      * @param clientIp  客户端IP
@@ -73,12 +167,7 @@ public class GatewayOrchestrationService {
             throw new BusinessException(401, "Authentication required.");
         }
 
-        // 1. 检查stream（MVP不支持）
-        if (Boolean.TRUE.equals(request.getStream())) {
-            throw new BusinessException(400, "Streaming is not yet supported.");
-        }
-
-        // 2. 模型权限检查
+        // 1. 模型权限检查
         checkModelPermission(virtualKey, request.getModel());
 
         // 3. 限流检查
@@ -100,6 +189,7 @@ public class GatewayOrchestrationService {
                 // 转发
                 response = proxyForwardService.forwardChatCompletion(
                         dispatchResult.getChannel().getBaseUrl(),
+                    dispatchResult.getChannel().getChannelType(),
                         dispatchResult.getRealKey(),
                         request
                 );
@@ -250,7 +340,7 @@ public class GatewayOrchestrationService {
             // 三层同步扣减（含流水记录）
             quotaService.deductQuotaWithFunnel(
                     virtualKey.getId(),
-                    virtualKey.getUser().getId(),
+                    virtualKey.getUserId(),
                     virtualKey.getTeamId(),
                     virtualKey.getProjectId(),
                     weightedAmount,
@@ -260,8 +350,7 @@ public class GatewayOrchestrationService {
 
         // 更新lastUsedTime
         try {
-            virtualKey.setLastUsedTime(LocalDateTime.now());
-            virtualKeyRepository.save(virtualKey);
+            virtualKeyRepository.updateLastUsedTime(virtualKey.getId(), LocalDateTime.now());
         } catch (Exception e) {
             log.warn("更新虚拟Key lastUsedTime失败: {}", e.getMessage());
         }
@@ -269,7 +358,7 @@ public class GatewayOrchestrationService {
         // 异步记录日志
         CallLog callLog = CallLog.builder()
                 .traceId(traceId)
-                .userId(virtualKey.getUser().getId())
+            .userId(virtualKey.getUserId())
                 .virtualKeyId(virtualKey.getId())
                 .channelId(dispatchResult.getChannel().getId())
                 .modelId(dispatchResult.getModel().getId())
@@ -295,7 +384,7 @@ public class GatewayOrchestrationService {
                                 String clientIp, String userAgent, int responseTime, String requestModel) {
         CallLog callLog = CallLog.builder()
                 .traceId(traceId)
-                .userId(virtualKey.getUser().getId())
+            .userId(virtualKey.getUserId())
                 .virtualKeyId(virtualKey.getId())
                 .channelId(dispatchResult != null ? dispatchResult.getChannel().getId() : null)
                 .modelId(dispatchResult != null ? dispatchResult.getModel().getId() : null)

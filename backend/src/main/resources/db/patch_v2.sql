@@ -53,3 +53,10 @@ CREATE TABLE IF NOT EXISTS `quota_transactions` (
   KEY `idx_target` (`target_type`, `target_id`),
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='额度流水表';
+
+-- 新增：real_keys 表添加 base_url 字段（Key 级别接口地址覆盖）
+-- 已存在时会报 Duplicate column 错误，忽略即可（MySQL 8.0 不支持 ADD COLUMN IF NOT EXISTS）
+ALTER TABLE `real_keys`
+  ADD COLUMN `base_url` VARCHAR(500) DEFAULT NULL
+    COMMENT 'Key对应接口地址，留空则使用渠道默认地址'
+  AFTER `remark`;

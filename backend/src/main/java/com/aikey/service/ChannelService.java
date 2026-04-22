@@ -7,6 +7,8 @@ import com.aikey.entity.Channel;
 import com.aikey.exception.BusinessException;
 import com.aikey.repository.ChannelRepository;
 import com.aikey.util.AesEncryptUtil;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,6 +25,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -40,6 +44,8 @@ public class ChannelService {
     private final ChannelRepository channelRepository;
 
     private final AesEncryptUtil aesEncryptUtil;
+
+    private final ObjectMapper objectMapper;
 
     @Value("${aes.secret-key}")
     private String aesSecretKey;
@@ -62,6 +68,12 @@ public class ChannelService {
             // AES加密API Key
             String encryptedApiKey = aesEncryptUtil.encrypt(request.getApiKey(), aesSecretKey);
 
+            // 构建扩展配置 JSON
+            String configJson = buildConfigJson(
+                    request.getProvider(), request.getApiVersion(),
+                    request.getMaxTokens(), request.getMaxRpm(),
+                    request.getMaxTpm(), request.getTimeout());
+
             // 构建实体并保存
             Channel channel = Channel.builder()
                     .channelName(request.getChannelName())
@@ -72,6 +84,7 @@ public class ChannelService {
                     .weight(request.getWeight())
                     .priority(request.getPriority())
                     .remark(request.getRemark())
+                    .config(configJson)
                     .status(1)
                     .healthStatus(1)
                     .successCount(0L)
@@ -181,11 +194,30 @@ public class ChannelService {
             if (request.getPriority() != null) {
                 channel.setPriority(request.getPriority());
             }
-            if (StringUtils.hasText(request.getRemark())) {
+            // remark 允许清空：null 表示不更新，空字符串/非空都执行更新
+            if (request.getRemark() != null) {
                 channel.setRemark(request.getRemark());
             }
             if (request.getStatus() != null) {
                 channel.setStatus(request.getStatus());
+            }
+
+            // 更新扩展配置字段（写入 config JSON）
+            boolean hasConfigUpdate = request.getProvider() != null
+                    || request.getApiVersion() != null
+                    || request.getMaxTokens() != null
+                    || request.getMaxRpm() != null
+                    || request.getMaxTpm() != null
+                    || request.getTimeout() != null;
+            if (hasConfigUpdate) {
+                Map<String, Object> cfg = parseConfigJson(channel.getConfig());
+                if (request.getProvider() != null)   cfg.put("provider",   request.getProvider());
+                if (request.getApiVersion() != null) cfg.put("apiVersion", request.getApiVersion());
+                if (request.getMaxTokens() != null)  cfg.put("maxTokens",  request.getMaxTokens());
+                if (request.getMaxRpm() != null)     cfg.put("maxRpm",     request.getMaxRpm());
+                if (request.getMaxTpm() != null)     cfg.put("maxTpm",     request.getMaxTpm());
+                if (request.getTimeout() != null)    cfg.put("timeout",    request.getTimeout());
+                channel.setConfig(objectMapper.writeValueAsString(cfg));
             }
 
             channel.setUpdatedAt(LocalDateTime.now());
@@ -321,6 +353,8 @@ public class ChannelService {
      * @return 渠道VO
      */
     private ChannelVO convertToVO(Channel channel) {
+        Map<String, Object> cfg = parseConfigJson(channel.getConfig());
+
         return ChannelVO.builder()
                 .id(channel.getId())
                 .channelName(channel.getChannelName())
@@ -332,7 +366,14 @@ public class ChannelService {
                 .priority(channel.getPriority())
                 .status(channel.getStatus())
                 .healthStatus(channel.getHealthStatus())
+                .healthCheckTime(channel.getHealthCheckTime())
                 .createdAt(channel.getCreatedAt())
+                .provider((String) cfg.get("provider"))
+                .apiVersion((String) cfg.get("apiVersion"))
+                .maxTokens(cfg.get("maxTokens") != null ? ((Number) cfg.get("maxTokens")).intValue() : null)
+                .maxRpm(cfg.get("maxRpm") != null ? ((Number) cfg.get("maxRpm")).intValue() : null)
+                .maxTpm(cfg.get("maxTpm") != null ? ((Number) cfg.get("maxTpm")).intValue() : null)
+                .timeout(cfg.get("timeout") != null ? ((Number) cfg.get("timeout")).intValue() : null)
                 .build();
     }
 
@@ -344,6 +385,34 @@ public class ChannelService {
      * @param encryptedKey 加密的API Key
      * @return 掩码后的字符串
      */
+    private String buildConfigJson(String provider, String apiVersion,
+                                   Integer maxTokens, Integer maxRpm,
+                                   Integer maxTpm, Integer timeout) {
+        try {
+            Map<String, Object> cfg = new HashMap<>();
+            if (provider != null)   cfg.put("provider",   provider);
+            if (apiVersion != null) cfg.put("apiVersion", apiVersion);
+            if (maxTokens != null)  cfg.put("maxTokens",  maxTokens);
+            if (maxRpm != null)     cfg.put("maxRpm",     maxRpm);
+            if (maxTpm != null)     cfg.put("maxTpm",     maxTpm);
+            if (timeout != null)    cfg.put("timeout",    timeout);
+            return cfg.isEmpty() ? null : objectMapper.writeValueAsString(cfg);
+        } catch (Exception e) {
+            log.warn("构建 config JSON 失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, Object> parseConfigJson(String configJson) {
+        try {
+            if (!StringUtils.hasText(configJson)) return new HashMap<>();
+            return objectMapper.readValue(configJson, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.warn("解析 config JSON 失败: {}", e.getMessage());
+            return new HashMap<>();
+        }
+    }
+
     private String maskApiKey(String encryptedKey) {
         try {
             if (!StringUtils.hasText(encryptedKey)) {

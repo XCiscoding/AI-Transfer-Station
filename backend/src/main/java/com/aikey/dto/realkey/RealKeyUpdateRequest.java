@@ -17,4 +17,6 @@ public class RealKeyUpdateRequest {
     private LocalDateTime expireTime;
 
     private String remark;
+
+    private String baseUrl;    // 覆盖渠道默认地址，可为空
 }

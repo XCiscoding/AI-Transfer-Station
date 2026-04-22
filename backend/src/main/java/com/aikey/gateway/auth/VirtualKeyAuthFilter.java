@@ -72,7 +72,7 @@ public class VirtualKeyAuthFilter extends OncePerRequestFilter {
 
             // 认证通过，设置上下文
             VirtualKeyAuthContext.set(virtualKey);
-            log.debug("虚拟Key认证通过: keyName={}, userId={}", virtualKey.getKeyName(), virtualKey.getUser().getId());
+            log.debug("虚拟Key认证通过: keyName={}, userId={}", virtualKey.getKeyName(), virtualKey.getUserId());
 
             filterChain.doFilter(request, response);
         } finally {

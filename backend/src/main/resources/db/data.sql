@@ -86,12 +86,13 @@ WHERE r.role_code = 'USER';
 
 -- =====================================================
 -- 4. 初始模型分组数据
+-- 先用 model_code 占位，待 models 表落库后再回填为 modelIds
 -- =====================================================
 
 INSERT INTO `model_groups` (`group_name`, `group_code`, `description`, `models`, `status`, `sort_order`) VALUES
 ('GPT系列', 'gpt-series', 'OpenAI GPT系列模型', '["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"]', 1, 10),
 ('Claude系列', 'claude-series', 'Anthropic Claude系列模型', '["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"]', 1, 20),
-('国产大模型', 'china-llm', '国产大模型集合', '["ernie-4.0", "ernie-3.5", "spark-desk"]', 1, 30);
+('国产大模型', 'china-llm', '国产大模型集合', '["ernie-4.0", "ernie-3.5", "spark-desk", "glm-4.7-flash", "glm-4-flash-250414"]', 1, 30);
 
 -- =====================================================
 -- 5. 模型配置数据
@@ -115,7 +116,11 @@ INSERT INTO `model_configs` (
 -- 国产模型
 ('文心一言 4.0', 'ernie-4.0', 'chat', 'baidu', 5.00, 15.00, 8192, 4096, 1, 0, 0, 1, 70),
 ('文心一言 3.5', 'ernie-3.5', 'chat', 'baidu', 2.00, 6.00, 8192, 4096, 1, 0, 0, 1, 80),
-('讯飞星火', 'spark-desk', 'chat', 'xunfei', 3.00, 9.00, 8192, 4096, 1, 0, 0, 1, 90);
+('讯飞星火', 'spark-desk', 'chat', 'xunfei', 3.00, 9.00, 8192, 4096, 1, 0, 0, 1, 90),
+
+-- 智谱免费模型
+('GLM-4.7 Flash', 'glm-4.7-flash', 'chat', 'zhipu', 0.00, 0.00, 200000, 128000, 1, 0, 0, 1, 100),
+('GLM-4-Flash-250414', 'glm-4-flash-250414', 'chat', 'zhipu', 0.00, 0.00, 128000, 16384, 1, 0, 0, 1, 110);
 
 -- =====================================================
 -- 6. 初始管理员账户
@@ -154,7 +159,7 @@ WHERE u.username IN ('admin', 'enterprise_admin');
 -- 8. 初始渠道数据（修复编码问题）
 -- =====================================================
 
-INSERT INTO channels (
+INSERT IGNORE INTO channels (
     channel_name, channel_code, channel_type, base_url,
     api_key_encrypted, models, weight, priority, status,
     health_status, remark
@@ -167,6 +172,10 @@ INSERT INTO channels (
  NULL, '["claude-3-opus", "claude-3-sonnet", "claude-3-haiku"]', 90, 8, 1, 1,
  'Anthropic Claude系列接口'),
 
+('智谱AI', 'zhipu', 'zhipu', 'https://open.bigmodel.cn/api/paas/v4',
+ NULL, '["glm-4.7-flash", "glm-4-flash-250414"]', 100, 9, 1, 1,
+ '智谱AI官方渠道，首期接入免费文本模型'),
+
 ('百度文心一言', 'wenxin-baidu', 'wenxin', 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
  NULL, '["ernie-4.0", "ernie-3.5", "ernie-turbo"]', 80, 6, 1, 1,
  '百度文心一言国产大模型接口'),
@@ -176,16 +185,78 @@ INSERT INTO channels (
  '测试用禁用渠道');
 
 -- =====================================================
--- 9. 初始团队数据（admin作为团队管理员）
+-- 9. 智谱模型种子数据
+-- =====================================================
+
+INSERT INTO `models` (
+    `model_name`, `model_code`, `model_alias`, `channel_id`, `model_type`,
+    `capability_tags`, `max_tokens`, `input_price`, `output_price`,
+    `quota_weight`, `status`, `config`, `remark`
+)
+SELECT 'GLM-4.7 Flash', 'glm-4.7-flash', 'GLM 4.7 Flash', c.id, 'chat',
+       '["chat", "general"]', 128000, 0.000000, 0.000000,
+       1.00, 1,
+       '{"provider":"zhipu","contextWindow":200000,"isStreaming":true,"isFunctionCalling":false}',
+       '智谱免费首选文本模型'
+FROM `channels` c
+WHERE c.`channel_code` = 'zhipu'
+UNION ALL
+SELECT 'GLM-4-Flash-250414', 'glm-4-flash-250414', 'GLM 4 Flash 250414', c.id, 'chat',
+       '["chat", "fast"]', 16384, 0.000000, 0.000000,
+       1.00, 1,
+       '{"provider":"zhipu","contextWindow":128000,"isStreaming":true,"isFunctionCalling":false}',
+       '智谱免费备选文本模型'
+FROM `channels` c
+WHERE c.`channel_code` = 'zhipu';
+
+-- 将国产大模型分组回填为实际 modelIds，避免启动后因旧的 model_code 种子导致分组渠道映射失效
+UPDATE `model_groups`
+SET `models` = (
+    SELECT IFNULL(
+        CONCAT(
+            '[',
+            GROUP_CONCAT(m.`id` ORDER BY FIELD(m.`model_code`, 'glm-4.7-flash', 'glm-4-flash-250414') SEPARATOR ','),
+            ']'
+        ),
+        '[]'
+    )
+    FROM `models` m
+    WHERE m.`deleted` = 0
+      AND m.`model_code` IN ('glm-4.7-flash', 'glm-4-flash-250414')
+)
+WHERE `group_code` = 'china-llm';
+
+-- =====================================================
+-- 10. 初始团队数据（admin作为团队管理员）
 -- =====================================================
 
 -- 先插入团队，owner_id 暂时为 1（admin 用户的 ID）
-INSERT IGNORE INTO `teams` (`id`, `team_name`, `team_code`, `description`, `owner_id`, `status`, `allowed_group_ids`)
-VALUES (1, '默认团队', 'default-team', '系统默认团队，用于测试团队管理员功能', 1, 1, '[1, 2, 3]');
+INSERT IGNORE INTO `teams` (
+    `id`, `team_name`, `team_code`, `description`, `owner_id`,
+    `quota_limit`, `quota_used`, `quota_remaining`, `quota_weight`,
+    `status`, `allowed_group_ids`
+)
+VALUES (
+    1, '默认团队', 'default-team', '系统默认团队，用于测试团队管理员功能', 1,
+    1000000.00, 0.00, 1000000.00, 1.00,
+    1, '[1, 2, 3]'
+);
+
+-- 默认团队成员（owner 同时写入 team_members，保证团队内发 Key/额度链路可直接测试）
+INSERT IGNORE INTO `team_members` (`team_id`, `user_id`, `role`)
+VALUES (1, 1, 'owner');
 
 -- =====================================================
--- 10. 初始项目数据
+-- 11. 初始项目数据
 -- =====================================================
 
-INSERT IGNORE INTO `projects` (`id`, `project_name`, `project_code`, `description`, `team_id`, `status`)
-VALUES (1, '默认项目', 'default-project', '系统默认项目', 1, 1);
+INSERT IGNORE INTO `projects` (
+    `id`, `project_name`, `project_code`, `description`, `team_id`, `owner_id`,
+    `quota_limit`, `quota_used`, `quota_remaining`, `quota_weight`,
+    `status`
+)
+VALUES (
+    1, '默认项目', 'default-project', '系统默认项目', 1, 1,
+    1000000.00, 0.00, 1000000.00, 1.00,
+    1
+);

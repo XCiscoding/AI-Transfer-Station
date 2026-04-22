@@ -36,5 +36,20 @@ public class ChannelVO {
 
     private Integer healthStatus;
 
+    private LocalDateTime healthCheckTime;
+
     private LocalDateTime createdAt;
+
+    // 扩展配置字段（来自 config JSON 列）
+    private String provider;
+
+    private String apiVersion;
+
+    private Integer maxTokens;
+
+    private Integer maxRpm;
+
+    private Integer maxTpm;
+
+    private Integer timeout;
 }

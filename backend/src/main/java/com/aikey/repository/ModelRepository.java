@@ -50,4 +50,23 @@ public interface ModelRepository extends JpaRepository<Model, Long>, JpaSpecific
      * @return 所有匹配的模型列表
      */
     List<Model> findByModelCodeAndStatusAndDeleted(String modelCode, Integer status, Integer deleted);
+
+    /**
+     * 根据模型编码列表和删除标记查询模型列表
+     *
+     * @param modelCodes 模型编码列表
+     * @param deleted 删除标记（0-未删除，1-已删除）
+     * @return 模型列表
+     */
+    List<Model> findByModelCodeInAndDeleted(List<String> modelCodes, Integer deleted);
+
+    /**
+     * 根据模型编码列表、状态和删除标记查询模型列表
+     *
+     * @param modelCodes 模型编码列表
+     * @param status 状态（0-下线，1-上线）
+     * @param deleted 删除标记（0-未删除，1-已删除）
+     * @return 模型列表
+     */
+    List<Model> findByModelCodeInAndStatusAndDeleted(List<String> modelCodes, Integer status, Integer deleted);
 }

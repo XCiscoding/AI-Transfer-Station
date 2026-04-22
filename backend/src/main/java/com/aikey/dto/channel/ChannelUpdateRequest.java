@@ -21,4 +21,17 @@ public class ChannelUpdateRequest {
     private String remark;
 
     private Integer status;
+
+    // 扩展配置字段（存储在 config JSON 列）
+    private String provider;
+
+    private String apiVersion;
+
+    private Integer maxTokens;
+
+    private Integer maxRpm;
+
+    private Integer maxTpm;
+
+    private Integer timeout;
 }

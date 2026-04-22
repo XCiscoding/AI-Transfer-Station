@@ -147,9 +147,12 @@
             </template>
           </el-table-column>
 
-          <el-table-column label="操作" width="200" align="center">
+          <el-table-column label="操作" width="240" align="center">
             <template #default="{ row }">
               <div class="action-buttons">
+                <el-button type="success" link size="small" @click="handleShowAccessInfo(row)">
+                  <el-icon><InfoFilled /></el-icon>接入
+                </el-button>
                 <el-button type="primary" link size="small" @click="handleVirtualEdit(row)">
                   <el-icon><Edit /></el-icon>编辑
                 </el-button>
@@ -376,6 +379,62 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- ==================== 接入信息弹窗 ==================== -->
+    <el-dialog
+      v-model="accessInfoDialogVisible"
+      title="接入信息"
+      width="600px"
+      :close-on-click-modal="true"
+      class="token-dialog access-info-dialog"
+    >
+      <div v-if="accessInfoRow" class="access-info-content">
+        <div class="access-info-header">
+          <span class="access-key-label">Key：</span>
+          <span class="access-key-name">{{ accessInfoRow.keyName }}</span>
+        </div>
+        <p class="access-info-tip">将以下信息告知成员，即可让其将虚拟Key用于任何兼容 OpenAI 格式的客户端。</p>
+
+        <div class="access-field">
+          <div class="access-field-label">接入地址（Base URL）</div>
+          <div class="access-field-value">
+            <code class="access-code">{{ gatewayBaseUrl }}</code>
+            <el-button type="primary" link size="small" @click="handleCopyText(gatewayBaseUrl, '接入地址')">
+              <el-icon><DocumentCopy /></el-icon>复制
+            </el-button>
+          </div>
+        </div>
+
+        <div class="access-field">
+          <div class="access-field-label">API Key</div>
+          <div class="access-field-value">
+            <code class="access-code">{{ accessInfoRow.keyValue }}</code>
+            <el-button type="primary" link size="small" @click="handleCopyText(accessInfoRow.keyValue, 'API Key')">
+              <el-icon><DocumentCopy /></el-icon>复制
+            </el-button>
+          </div>
+        </div>
+
+        <div class="access-field">
+          <div class="access-field-label">curl 快速验证</div>
+          <div class="access-example">
+            <pre class="access-code-block">curl {{ gatewayBaseUrl }}/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer {{ accessInfoRow.keyValue }}" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"你好"}]}'</pre>
+            <el-button type="primary" link size="small" class="copy-example-btn" @click="handleCopyCurlExample">
+              <el-icon><DocumentCopy /></el-icon>复制
+            </el-button>
+          </div>
+        </div>
+
+        <el-alert type="info" :closable="false" show-icon style="margin-top: 4px">
+          <template #title>
+            成员只需将客户端的 <code style="font-size:12px">baseURL</code> 改为上方接入地址，<code style="font-size:12px">apiKey</code> 填虚拟Key即可。
+          </template>
+        </el-alert>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -389,7 +448,8 @@ import {
   Delete,
   Connection,
   DocumentCopy,
-  Refresh
+  Refresh,
+  InfoFilled
 } from '@element-plus/icons-vue'
 import {
   getVirtualKeyList,
@@ -1001,6 +1061,31 @@ async function handleCopyVirtualKey(row) {
   }
 }
 
+// ==================== 接入信息 ====================
+const accessInfoDialogVisible = ref(false)
+const accessInfoRow = ref(null)
+const gatewayBaseUrl = window.location.origin + '/v1'
+
+function handleShowAccessInfo(row) {
+  accessInfoRow.value = row
+  accessInfoDialogVisible.value = true
+}
+
+async function handleCopyText(text, label) {
+  try {
+    await navigator.clipboard.writeText(text || '')
+    ElMessage.success(`${label}已复制`)
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+function handleCopyCurlExample() {
+  if (!accessInfoRow.value) return
+  const curl = `curl ${gatewayBaseUrl}/chat/completions \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ${accessInfoRow.value.keyValue}" \\\n  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"你好"}]}'`
+  handleCopyText(curl, 'curl 示例')
+}
+
 function formatTime(timeStr) {
   if (!timeStr) return ''
   const date = new Date(timeStr)
@@ -1526,5 +1611,95 @@ function getQuotaTypeTagType(type) {
     padding: 0 16px;
     font-size: 13px;
   }
+}
+
+/* ==================== 接入信息弹窗样式 ==================== */
+.access-info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.access-info-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.access-key-label {
+  font-size: 13px;
+  color: rgba(248, 250, 252, 0.5);
+}
+
+.access-key-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.access-info-tip {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(248, 250, 252, 0.6);
+  line-height: 1.6;
+}
+
+.access-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.access-field-label {
+  font-size: 11px;
+  color: rgba(248, 250, 252, 0.45);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.access-field-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.access-code {
+  flex: 1;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  color: rgba(248, 250, 252, 0.9);
+  word-break: break-all;
+}
+
+.access-example {
+  position: relative;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px 14px;
+  padding-right: 70px;
+}
+
+.access-code-block {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.85);
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.copy-example-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
 }
 </style>

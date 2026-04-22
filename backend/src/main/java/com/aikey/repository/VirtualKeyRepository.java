@@ -1,11 +1,16 @@
 package com.aikey.repository;
 
 import com.aikey.entity.VirtualKey;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -60,4 +65,12 @@ public interface VirtualKeyRepository extends JpaRepository<VirtualKey, Long>, J
      * @return 是否存在
      */
     boolean existsByKeyValue(String keyValue);
+
+    /**
+     * 仅更新最后使用时间，避免覆盖额度字段的并发/原子扣减结果。
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE VirtualKey v SET v.lastUsedTime = :lastUsedTime WHERE v.id = :id")
+    int updateLastUsedTime(@Param("id") Long id, @Param("lastUsedTime") LocalDateTime lastUsedTime);
 }

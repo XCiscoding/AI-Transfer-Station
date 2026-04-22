@@ -37,3 +37,10 @@ export function deleteChannel(id) {
     method: 'delete'
   })
 }
+
+export function testChannel(id) {
+  return request({
+    url: `/channels/${id}/test`,
+    method: 'post'
+  })
+}

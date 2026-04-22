@@ -76,6 +76,7 @@ public class RealKeyService {
                     .expireTime(request.getExpireTime())
                     .usageCount(0L)
                     .remark(request.getRemark())
+                    .baseUrl(request.getBaseUrl())
                     .createdAt(LocalDateTime.now())
                     .updatedAt(LocalDateTime.now())
                     .deleted(0)
@@ -192,6 +193,10 @@ public class RealKeyService {
             if (StringUtils.hasText(request.getRemark())) {
                 realKey.setRemark(request.getRemark());
             }
+            // baseUrl 允许用空字符串清除（null 表示不更新）
+            if (request.getBaseUrl() != null) {
+                realKey.setBaseUrl(request.getBaseUrl().isBlank() ? null : request.getBaseUrl().trim());
+            }
 
             realKey.setUpdatedAt(LocalDateTime.now());
             RealKey updatedRealKey = realKeyRepository.save(realKey);
@@ -257,6 +262,7 @@ public class RealKeyService {
                 .keyMask(realKey.getKeyMask())
                 .channelId(realKey.getChannel().getId())
                 .channelName(realKey.getChannel().getChannelName())
+                .baseUrl(realKey.getBaseUrl())
                 .status(realKey.getStatus())
                 .expireTime(realKey.getExpireTime())
                 .usageCount(realKey.getUsageCount())

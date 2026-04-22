@@ -29,15 +29,19 @@ public class GatewayController {
     private final GatewayOrchestrationService orchestrationService;
 
     /**
-     * Chat Completion接口（兼容OpenAI格式）
+     * Chat Completion接口（兼容OpenAI格式），支持流式（SSE）与非流式响应
      */
     @PostMapping("/chat/completions")
-    public ResponseEntity<ChatCompletionResponse> chatCompletion(
+    public Object chatCompletion(
             @RequestBody ChatCompletionRequest request,
             HttpServletRequest httpRequest) {
 
         String clientIp = getClientIp(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
+
+        if (Boolean.TRUE.equals(request.getStream())) {
+            return orchestrationService.processChatCompletionStream(request, clientIp, userAgent);
+        }
 
         ChatCompletionResponse response = orchestrationService.processChatCompletion(
                 request, clientIp, userAgent);
