@@ -81,23 +81,7 @@
             </template>
           </el-table-column>
 
-          <el-table-column prop="keyValue" label="虚拟Key值" min-width="280" show-overflow-tooltip>
-            <template #default="{ row }">
-              <div class="key-value-wrapper">
-                <span class="virtual-key-code">{{ row.keyValue }}</span>
-                <el-button
-                  type="primary"
-                  link
-                  size="small"
-                  class="copy-btn"
-                  @click="handleCopyVirtualKey(row)"
-                >
-                  <el-icon><DocumentCopy /></el-icon>
-                  复制
-                </el-button>
-              </div>
-            </template>
-          </el-table-column>
+
 
           <el-table-column prop="quotaType" label="额度类型" width="90" align="center">
             <template #default="{ row }">
@@ -412,6 +396,22 @@
             <el-button type="primary" link size="small" @click="handleCopyText(accessInfoRow.keyValue, 'API Key')">
               <el-icon><DocumentCopy /></el-icon>复制
             </el-button>
+          </div>
+        </div>
+
+        <div class="access-field">
+          <div class="access-field-label">可用模型</div>
+          <div class="access-field-value access-models">
+            <template v-if="accessInfoModels.length">
+              <el-tag
+                v-for="model in accessInfoModels"
+                :key="model"
+                size="small"
+                type="info"
+                style="margin: 2px 4px 2px 0"
+              >{{ model }}</el-tag>
+            </template>
+            <span v-else class="access-models-unrestricted">不限制（使用渠道支持的任意模型）</span>
           </div>
         </div>
 
@@ -1064,7 +1064,20 @@ async function handleCopyVirtualKey(row) {
 // ==================== 接入信息 ====================
 const accessInfoDialogVisible = ref(false)
 const accessInfoRow = ref(null)
-const gatewayBaseUrl = window.location.origin + '/v1'
+const accessInfoModels = computed(() => {
+  const raw = accessInfoRow.value?.allowedModels
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed.filter(Boolean)
+  } catch {
+    // 非 JSON：逗号分隔的纯文本
+    return raw.split(',').map(s => s.trim()).filter(Boolean)
+  }
+  return []
+})
+// 开发环境优先使用 VITE_GATEWAY_BASE_URL（指向后端直连），生产环境同源
+const gatewayBaseUrl = (import.meta.env.VITE_GATEWAY_BASE_URL ?? window.location.origin) + '/v1'
 
 function handleShowAccessInfo(row) {
   accessInfoRow.value = row
@@ -1701,5 +1714,17 @@ function getQuotaTypeTagType(type) {
   position: absolute;
   top: 10px;
   right: 10px;
+}
+
+.access-models {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  line-height: 1.8;
+}
+
+.access-models-unrestricted {
+  font-size: 12px;
+  color: rgba(248, 250, 252, 0.5);
+  font-style: italic;
 }
 </style>

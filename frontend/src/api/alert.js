@@ -28,6 +28,10 @@ export function getAlertUnreadCount() {
   return request({ url: '/alert-rules/unread-count', method: 'get' })
 }
 
+export function triggerCheckNow() {
+  return request({ url: '/alert-rules/check-now', method: 'post' })
+}
+
 export function getRecentAlerts() {
   return request({ url: '/alert-rules/recent', method: 'get' })
 }

@@ -167,7 +167,7 @@ public class ProxyForwardService {
                     try {
                         emitter.send(SseEmitter.event().data("[DONE]"));
                         emitter.complete();
-                    } catch (IOException ignored) { }
+                    } catch (IOException | IllegalStateException ignored) { }
                     emitterCompleted.set(true);
                     return;
                 }
@@ -188,8 +188,8 @@ public class ProxyForwardService {
                 } catch (Exception ignored) { }
                 try {
                     emitter.send(SseEmitter.event().data(data));
-                } catch (IOException e) {
-                    log.warn("SSE客户端连接已断开: {}", e.getMessage());
+                } catch (IOException | IllegalStateException e) {
+                    log.warn("SSE客户端连接已断开或Emitter已完成: {}", e.getMessage());
                     emitterCompleted.set(true); // 停止继续推送
                 }
             });
@@ -200,6 +200,10 @@ public class ProxyForwardService {
 
         } catch (BusinessException e) {
             throw e;
+        } catch (IllegalStateException e) {
+            // emitter 已被外部（超时/客户端断连）关闭，流式提前结束，属正常情况
+            log.warn("SSE Emitter 已外部关闭，流式转发提前终止: {}", e.getMessage());
+            return usageRef.get();
         } catch (Exception e) {
             log.error("流式转发异常: url={}, error={}", url, e.getMessage(), e);
             try { emitter.completeWithError(e); } catch (Exception ignored) { }

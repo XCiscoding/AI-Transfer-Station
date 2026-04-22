@@ -51,6 +51,14 @@ public class GatewayController {
 
     // ==================== 异常处理（OpenAI格式） ====================
 
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<OpenAiErrorResponse> handleMessageNotReadable(Exception e) {
+        log.warn("请求体解析失败: {}", e.getMessage());
+        OpenAiErrorResponse error = OpenAiErrorResponse.of(
+                "Invalid request: " + e.getMessage(), "invalid_request_error", "invalid_request");
+        return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<OpenAiErrorResponse> handleBusinessException(BusinessException e) {
         String type = mapErrorType(e.getCode());

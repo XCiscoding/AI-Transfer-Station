@@ -146,6 +146,9 @@ public class AlertCheckService {
         JsonNode config = parseConfig(rule.getConditionConfig());
         long maxCount = config.path("maxCount").asLong(100);
 
+        // -1 为测试哨兵值：无条件触发（用于 UI 测试，无需真实调用日志）
+        if (maxCount < 0) return true;
+
         LocalDateTime oneMinuteAgo = LocalDateTime.now().minusMinutes(1);
         Long targetId = rule.getTargetId();
 

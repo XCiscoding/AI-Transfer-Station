@@ -4,6 +4,7 @@ import com.aikey.dto.common.PageResult;
 import com.aikey.dto.common.Result;
 import com.aikey.entity.AlertHistory;
 import com.aikey.entity.AlertRule;
+import com.aikey.service.AlertCheckService;
 import com.aikey.service.AlertRuleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -20,6 +21,7 @@ import java.util.List;
 public class AlertRuleController {
 
     private final AlertRuleService alertRuleService;
+    private final AlertCheckService alertCheckService;
 
     @GetMapping
     @Operation(summary = "分页查询告警规则")
@@ -78,6 +80,13 @@ public class AlertRuleController {
     @Operation(summary = "查询最近10条告警历史")
     public Result<List<AlertHistory>> recent() {
         return Result.success(alertRuleService.getRecentAlerts());
+    }
+
+    @PostMapping("/check-now")
+    @Operation(summary = "立即触发一次告警检查（测试用）")
+    public Result<String> checkNow() {
+        alertCheckService.checkAlertRules();
+        return Result.success("告警检查已执行，请查看历史记录");
     }
 
     @Data

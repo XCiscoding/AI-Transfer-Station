@@ -1420,3 +1420,104 @@ curl.exe -N --max-time 25 -s -X POST "http://localhost:8080/v1/chat/completions"
 > ```sql
 > SELECT model_code FROM models WHERE deleted=0;
 > ```
+
+---
+
+## 10. v2.0 全量进度与下一步（2026-04-22 更新）
+
+> 本节是「当前最新状态」的权威记录，接手时以本节为准，忽略上方旧版 Step 1-6 任务列表。
+
+### 10.1 已完成（Phase 1 ~ Phase 4 + v2.1 修复）
+
+| 阶段 | 任务 | 状态 | 说明 |
+|------|------|------|------|
+| Phase 1 | T1.1 智谱渠道种子数据 | ✅ | data.sql + Flyway 已含智谱渠道 |
+| Phase 1 | T1.2 ProxyForwardService 智谱 URL 适配 | ✅ | buildUrl 分支：isZhipu 判断 |
+| Phase 1 | T1.3 渠道连通性测试按钮 | ✅ | `/api/v1/channels/{id}/test` 已上线 |
+| Phase 2 | T2.1 SSE 流式转发 | ✅ | curl 验证通过，quota_transactions 有记录 |
+| Phase 3 | T3.1 日志 CSV 导出 | ✅ | `/api/v1/logs/export` |
+| Phase 3 | T3.2 流水 CSV 导出 | ✅ | `/api/v1/quota/transactions/export` |
+| Phase 3 | T3.3 日志详情弹窗增强 | ✅ | RequestLog.vue 详情卡片已更新 |
+| Phase 4 | T4.1 告警规则 CRUD | ✅ | `/api/v1/alert-rules/**` |
+| Phase 4 | T4.2 告警触发引擎 | ✅ | `@Scheduled` 每分钟扫描 call_logs |
+| Phase 4 | T4.3 告警铃铛展示 | ✅ | MainLayout.vue 铃铛 + Badge |
+| Phase 7 | T7.3 清理 /skills 路由 | ✅ | router/index.js 已移除 |
+| v2.1 修复 | ChatMessage.content: String → JsonNode | ✅ | 兼容牛马AI/Cherry Studio 的 Array 格式 |
+
+**云端部署**：`http://111.230.113.110:8083` 已可正常访问（GitHub Actions + all-in-one compose）
+
+---
+
+### 10.2 ⭐ 下一步：T5.1 + T5.2 — Overview 首页接入真实数据（高优先级）
+
+#### T5.1 — 后端统计 API
+
+**目标**：为首页概览卡片提供真实数据，去掉硬编码 Mock 值。
+
+**新增文件**：
+- `backend/src/main/java/com/aikey/controller/DashboardController.java`
+- `backend/src/main/java/com/aikey/service/DashboardService.java`
+
+**接口**：`GET /api/v1/dashboard/overview`
+
+**返回结构**：
+```json
+{
+  "todayCalls": 128,
+  "todayTokens": 24560,
+  "todayCost": 12.80,
+  "avgResponseTime": 156,
+  "todayCallsTrend": 12.5,
+  "todayTokensTrend": 8.3,
+  "todayCostTrend": -5.2,
+  "avgResponseTimeTrend": 2.1
+}
+```
+
+**SQL 实现参考**：
+```sql
+-- todayCalls
+SELECT COUNT(*) FROM call_logs WHERE DATE(created_at) = CURDATE();
+-- todayTokens
+SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs WHERE DATE(created_at) = CURDATE();
+-- todayCost
+SELECT COALESCE(SUM(cost), 0) FROM call_logs WHERE DATE(created_at) = CURDATE();
+-- avgResponseTime（仅成功调用）
+SELECT COALESCE(AVG(response_time), 0) FROM call_logs
+  WHERE DATE(created_at) = CURDATE() AND status = 1;
+-- trend = (今日值 - 昨日值) / 昨日值 * 100，昨日值为 0 时 trend = 0
+```
+
+**验收标准**：
+1. `GET /api/v1/dashboard/overview` 返回 200，字段不为 null
+2. todayCalls 与 `call_logs` 当日行数一致
+3. trend 字段为数值，昨日无数据时为 0 而非 NaN/null
+
+---
+
+#### T5.2 — 前端 Overview 接入真实数据
+
+**改动文件**：
+- `frontend/src/api/dashboard.js` — 新增 `getOverviewStats()` 方法
+- `frontend/src/views/Overview.vue` — onMounted 调用 API，去掉硬编码
+
+**验收标准**：
+1. 页面刷新后概览卡片数字与数据库实际数据吻合
+2. trend 箭头方向与数值符号一致（正数朝上，负数朝下）
+3. API 失败时有合理 fallback（不显示 NaN，可显示 `-`）
+
+---
+
+### 10.3 弱保留 / 备选任务
+
+| 任务 | 优先级 | 说明 |
+|------|--------|------|
+| T6.1 模型市场页面 | 弱保留 | 不纳入当前排期，有余力再做 |
+| T7.1 个人中心页面 | 备选 | 有余力再做 |
+| T7.2 登录日志实装 | 备选 | 有余力再做 |
+
+---
+
+### 10.4 文档目录（2026-04-22 整理后）
+
+所有规划文档已从 `docs/` 迁移至 `.trae/`，导航入口：[`.trae/INDEX.md`](.trae/INDEX.md)

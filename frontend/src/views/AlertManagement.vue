@@ -7,9 +7,12 @@
         <div class="filter-card glass-card">
           <div class="filter-header">
             <span class="filter-title">告警规则列表</span>
-            <el-button type="primary" @click="openCreateDialog">
-              <el-icon><Plus /></el-icon> 新建规则
-            </el-button>
+            <div style="display:flex;gap:8px">
+              <el-button type="success" :loading="checking" @click="handleCheckNow">立即触发检测</el-button>
+              <el-button type="primary" @click="openCreateDialog">
+                <el-icon><Plus /></el-icon> 新建规则
+              </el-button>
+            </div>
           </div>
         </div>
 
@@ -104,7 +107,7 @@
           <el-input v-model="form.ruleName" placeholder="输入规则名称" />
         </el-form-item>
         <el-form-item label="规则类型" prop="ruleType">
-          <el-select v-model="form.ruleType" placeholder="选择规则类型" style="width:100%">
+          <el-select v-model="form.ruleType" placeholder="选择规则类型" style="width:100%" @change="handleRuleTypeChange">
             <el-option label="额度不足告警" value="quota_low" />
             <el-option label="错误率告警" value="error_rate" />
             <el-option label="调用量异常" value="call_volume" />
@@ -122,9 +125,12 @@
         <el-form-item label="目标ID">
           <el-input-number v-model="form.targetId" :min="1" placeholder="留空表示全局" style="width:100%" controls-position="right" />
         </el-form-item>
-        <el-form-item label="触发条件(JSON)">
+        <el-form-item label="触发条件(JSON)" prop="conditionConfig">
           <el-input v-model="form.conditionConfig" type="textarea" :rows="3"
-            placeholder='如: {"threshold": 100, "unit": "yuan"}' />
+            placeholder='选择规则类型后自动预填，或手动输入合法 JSON' />
+          <div style="font-size:12px;color:#999;margin-top:4px">
+            调用量异常测试用: <code>{"maxCount": -1}</code>&nbsp;（-1 = 无条件触发）
+          </div>
         </el-form-item>
         <el-form-item label="动作配置(JSON)">
           <el-input v-model="form.actionConfig" type="textarea" :rows="3"
@@ -151,7 +157,8 @@ import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getAlertRules, createAlertRule, updateAlertRule,
-  toggleAlertRule, deleteAlertRule, getAlertHistories
+  toggleAlertRule, deleteAlertRule, getAlertHistories,
+  triggerCheckNow
 } from '@/api/alert'
 
 const activeTab = ref('rules')
@@ -167,8 +174,8 @@ async function fetchRules() {
   rulesLoading.value = true
   try {
     const res = await getAlertRules({ page: rulesPage.value, size: rulesSize.value })
-    rules.value = res.records || []
-    rulesTotal.value = res.total || 0
+    rules.value = res.data?.records || []
+    rulesTotal.value = res.data?.total || 0
   } finally {
     rulesLoading.value = false
   }
@@ -185,8 +192,8 @@ async function fetchHistories() {
   historiesLoading.value = true
   try {
     const res = await getAlertHistories({ page: historiesPage.value, size: historiesSize.value })
-    histories.value = res.records || []
-    historiesTotal.value = res.total || 0
+    histories.value = res.data?.records || []
+    historiesTotal.value = res.data?.total || 0
   } finally {
     historiesLoading.value = false
   }
@@ -208,9 +215,23 @@ const form = ref({
   notificationChannels: '',
   isEnabled: 1
 })
+const checking = ref(false)
+
+const validateJson = (rule, value, callback) => {
+  if (!value || value.trim() === '') return callback()
+  try {
+    JSON.parse(value)
+    callback()
+  } catch (e) {
+    callback(new Error('不是合法 JSON，key 必须用双引号，如 {"maxCount": -1}'))
+  }
+}
+
 const formRules = {
   ruleName: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
-  ruleType: [{ required: true, message: '请选择规则类型', trigger: 'change' }]
+  ruleType: [{ required: true, message: '请选择规则类型', trigger: 'change' }],
+  conditionConfig: [{ validator: validateJson, trigger: 'blur' }],
+  actionConfig: [{ validator: validateJson, trigger: 'blur' }]
 }
 
 function resetForm() {
@@ -241,6 +262,35 @@ function openEditDialog(row) {
     isEnabled: row.isEnabled
   }
   dialogVisible.value = true
+}
+
+function handleRuleTypeChange(type) {
+  const presets = {
+    call_volume: '{"maxCount": -1}',
+    quota_low: '{"threshold": 20}',
+    error_rate: '{"maxRate": 0.5}',
+    channel_down: '{"failThreshold": 5}'
+  }
+  if (!form.value.conditionConfig) {
+    form.value.conditionConfig = presets[type] || ''
+  }
+  if (!form.value.actionConfig) {
+    form.value.actionConfig = '{}'
+  }
+}
+
+async function handleCheckNow() {
+  checking.value = true
+  try {
+    const res = await triggerCheckNow()
+    ElMessage.success(res.message || '检测完成，请切换到「告警历史」查看结果')
+    fetchHistories()
+    fetchRules()
+  } catch (e) {
+    ElMessage.error('触发失败：' + (e?.message || '未知错误'))
+  } finally {
+    checking.value = false
+  }
 }
 
 async function handleSubmit() {

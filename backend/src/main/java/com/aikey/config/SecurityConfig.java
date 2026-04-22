@@ -132,9 +132,20 @@ public class SecurityConfig {
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        // 允许的前端地址
-        configuration.setAllowedOrigins(Arrays.asList(
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+
+        // 网关路径（/v1/**）：允许任意 Origin，供外部 AI 客户端直连
+        CorsConfiguration gatewayCors = new CorsConfiguration();
+        gatewayCors.setAllowedOriginPatterns(List.of("*"));
+        gatewayCors.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        gatewayCors.setAllowedHeaders(List.of("*"));
+        gatewayCors.setAllowCredentials(false); // 允许任意 Origin 时不能同时开 credentials
+        gatewayCors.setMaxAge(3600L);
+        source.registerCorsConfiguration("/v1/**", gatewayCors);
+
+        // 管理 API（/**）：只允许受信任的前端地址
+        CorsConfiguration managementCors = new CorsConfiguration();
+        managementCors.setAllowedOrigins(Arrays.asList(
             "http://localhost:5173",  // Vite默认端口
             "http://localhost:5174",  // Vite备选端口
             "http://localhost:5175",  // Vite备选端口
@@ -148,17 +159,12 @@ public class SecurityConfig {
             "http://127.0.0.1:4173",
             "http://111.230.113.110:8083"  // 云端生产地址
         ));
-        // 允许的HTTP方法
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        // 允许的请求头
-        configuration.setAllowedHeaders(Arrays.asList("*"));
-        // 允许携带凭证（cookies等）
-        configuration.setAllowCredentials(true);
-        // 预检请求缓存时间（秒）
-        configuration.setMaxAge(3600L);
+        managementCors.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        managementCors.setAllowedHeaders(List.of("*"));
+        managementCors.setAllowCredentials(true);
+        managementCors.setMaxAge(3600L);
+        source.registerCorsConfiguration("/**", managementCors);
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
         return source;
     }
 }
