@@ -16,22 +16,22 @@ public class DashboardService {
 
     public DashboardOverviewVO getOverview() {
         long todayCalls = queryLong(
-                "SELECT COUNT(*) FROM call_logs WHERE DATE(created_at) = CURDATE()");
+                "SELECT COUNT(*) FROM call_logs WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)");
         long todayTokens = queryLong(
-                "SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs WHERE DATE(created_at) = CURDATE()");
+                "SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)");
         BigDecimal todayCost = queryDecimal(
-                "SELECT COALESCE(SUM(cost), 0) FROM call_logs WHERE DATE(created_at) = CURDATE()");
+                "SELECT COALESCE(SUM(cost), 0) FROM call_logs WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)");
         long avgResponseTime = queryLong(
-                "SELECT COALESCE(AVG(response_time), 0) FROM call_logs WHERE DATE(created_at) = CURDATE() AND status = 1");
+                "SELECT COALESCE(AVG(response_time), 0) FROM call_logs WHERE created_at >= CURDATE() AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY) AND status = 1");
 
         long yesterdayCalls = queryLong(
-                "SELECT COUNT(*) FROM call_logs WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+                "SELECT COUNT(*) FROM call_logs WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE()");
         long yesterdayTokens = queryLong(
-                "SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+                "SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE()");
         BigDecimal yesterdayCost = queryDecimal(
-                "SELECT COALESCE(SUM(cost), 0) FROM call_logs WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)");
+                "SELECT COALESCE(SUM(cost), 0) FROM call_logs WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE()");
         long yesterdayAvgResponseTime = queryLong(
-                "SELECT COALESCE(AVG(response_time), 0) FROM call_logs WHERE DATE(created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND status = 1");
+                "SELECT COALESCE(AVG(response_time), 0) FROM call_logs WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND created_at < CURDATE() AND status = 1");
 
         return DashboardOverviewVO.builder()
                 .todayCalls(todayCalls)
@@ -40,14 +40,14 @@ public class DashboardService {
                 .avgResponseTime(avgResponseTime)
                 .todayCallsTrend(calcTrend(todayCalls, yesterdayCalls))
                 .todayTokensTrend(calcTrend(todayTokens, yesterdayTokens))
-                .todayCostTrend(calcTrend(todayCost.longValue(), yesterdayCost.longValue()))
+                .todayCostTrend(calcTrend(todayCost, yesterdayCost))
                 .avgResponseTimeTrend(calcTrend(avgResponseTime, yesterdayAvgResponseTime))
                 .build();
     }
 
     private long queryLong(String sql) {
-        Long val = jdbcTemplate.queryForObject(sql, Long.class);
-        return val == null ? 0L : val;
+        Number val = jdbcTemplate.queryForObject(sql, Number.class);
+        return val == null ? 0L : Math.round(val.doubleValue());
     }
 
     private BigDecimal queryDecimal(String sql) {
@@ -63,5 +63,15 @@ public class DashboardService {
         if (yesterday == 0) return 0.0;
         double rate = (today - yesterday) * 100.0 / yesterday;
         return Math.round(rate * 10) / 10.0;
+    }
+
+    private double calcTrend(BigDecimal today, BigDecimal yesterday) {
+        if (yesterday == null || BigDecimal.ZERO.compareTo(yesterday) == 0) {
+            return 0.0;
+        }
+        BigDecimal rate = today.subtract(yesterday)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(yesterday, 1, RoundingMode.HALF_UP);
+        return rate.doubleValue();
     }
 }

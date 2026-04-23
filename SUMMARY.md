@@ -1427,7 +1427,7 @@ curl.exe -N --max-time 25 -s -X POST "http://localhost:8080/v1/chat/completions"
 
 > 本节是「当前最新状态」的权威记录，接手时以本节为准，忽略上方旧版 Step 1-6 任务列表。
 
-### 10.1 已完成（Phase 1 ~ Phase 4 + v2.1 修复）
+### 10.1 已完成（Phase 1 ~ Phase 5 + v2.1 修复）
 
 | 阶段 | 任务 | 状态 | 说明 |
 |------|------|------|------|
@@ -1441,6 +1441,8 @@ curl.exe -N --max-time 25 -s -X POST "http://localhost:8080/v1/chat/completions"
 | Phase 4 | T4.1 告警规则 CRUD | ✅ | `/api/v1/alert-rules/**` |
 | Phase 4 | T4.2 告警触发引擎 | ✅ | `@Scheduled` 每分钟扫描 call_logs |
 | Phase 4 | T4.3 告警铃铛展示 | ✅ | MainLayout.vue 铃铛 + Badge |
+| Phase 5 | T5.1 后端统计 API | ✅ | `GET /api/v1/dashboard/overview` |
+| Phase 5 | T5.2 Overview 首页真实数据 | ✅ | Overview.vue 已接入真实统计接口 |
 | Phase 7 | T7.3 清理 /skills 路由 | ✅ | router/index.js 已移除 |
 | v2.1 修复 | ChatMessage.content: String → JsonNode | ✅ | 兼容牛马AI/Cherry Studio 的 Array 格式 |
 
@@ -1448,15 +1450,16 @@ curl.exe -N --max-time 25 -s -X POST "http://localhost:8080/v1/chat/completions"
 
 ---
 
-### 10.2 ⭐ 下一步：T5.1 + T5.2 — Overview 首页接入真实数据（高优先级）
+### 10.2 2026-04-23 完成：T5.1 + T5.2 — Overview 首页接入真实数据
 
-#### T5.1 — 后端统计 API
+#### T5.1 — 后端统计 API（完成）
 
 **目标**：为首页概览卡片提供真实数据，去掉硬编码 Mock 值。
 
-**新增文件**：
+**已实现文件**：
 - `backend/src/main/java/com/aikey/controller/DashboardController.java`
 - `backend/src/main/java/com/aikey/service/DashboardService.java`
+- `backend/src/main/java/com/aikey/dto/dashboard/DashboardOverviewVO.java`
 
 **接口**：`GET /api/v1/dashboard/overview`
 
@@ -1474,37 +1477,64 @@ curl.exe -N --max-time 25 -s -X POST "http://localhost:8080/v1/chat/completions"
 }
 ```
 
-**SQL 实现参考**：
+**实现要点**：
+- 统计今日调用量、Token、费用、成功调用平均响应时间
+- 同时统计昨日对应指标，计算今日相对昨日的 trend
+- 昨日基数为 0 时 trend 返回 `0.0`，避免 NaN/null
+- 查询条件使用 `created_at >= ... AND created_at < ...` 时间范围，避免 `DATE(created_at)` 破坏索引利用
+- `todayCostTrend` 使用 `BigDecimal` 计算，不把小数金额截断成 long
+
+**核心 SQL 模式**：
 ```sql
 -- todayCalls
-SELECT COUNT(*) FROM call_logs WHERE DATE(created_at) = CURDATE();
+SELECT COUNT(*) FROM call_logs
+WHERE created_at >= CURDATE()
+  AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY);
 -- todayTokens
-SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs WHERE DATE(created_at) = CURDATE();
+SELECT COALESCE(SUM(total_tokens), 0) FROM call_logs
+WHERE created_at >= CURDATE()
+  AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY);
 -- todayCost
-SELECT COALESCE(SUM(cost), 0) FROM call_logs WHERE DATE(created_at) = CURDATE();
+SELECT COALESCE(SUM(cost), 0) FROM call_logs
+WHERE created_at >= CURDATE()
+  AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY);
 -- avgResponseTime（仅成功调用）
 SELECT COALESCE(AVG(response_time), 0) FROM call_logs
-  WHERE DATE(created_at) = CURDATE() AND status = 1;
+WHERE created_at >= CURDATE()
+  AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
+  AND status = 1;
 -- trend = (今日值 - 昨日值) / 昨日值 * 100，昨日值为 0 时 trend = 0
 ```
 
-**验收标准**：
+**验收状态**：
 1. `GET /api/v1/dashboard/overview` 返回 200，字段不为 null
 2. todayCalls 与 `call_logs` 当日行数一致
 3. trend 字段为数值，昨日无数据时为 0 而非 NaN/null
+4. 后端 `mvn clean compile -DskipTests` 已通过
 
 ---
 
-#### T5.2 — 前端 Overview 接入真实数据
+#### T5.2 — 前端 Overview 接入真实数据（完成）
 
 **改动文件**：
 - `frontend/src/api/dashboard.js` — 新增 `getOverviewStats()` 方法
 - `frontend/src/views/Overview.vue` — onMounted 调用 API，去掉硬编码
 
-**验收标准**：
+**实现要点**：
+- `Overview.vue` 页面加载时调用 `getOverviewStats()`
+- 4 张概览卡片展示接口返回的真实值
+- trend 图标方向与数值符号一致：正数向上、负数向下
+- 接口失败、加载中或返回异常时显示 `-`，不显示 NaN，也不把失败误显示成真实 0
+
+**验收状态**：
 1. 页面刷新后概览卡片数字与数据库实际数据吻合
 2. trend 箭头方向与数值符号一致（正数朝上，负数朝下）
 3. API 失败时有合理 fallback（不显示 NaN，可显示 `-`）
+4. 前端构建已通过：使用 Node v22.18.0 运行 `node node_modules/vite/bin/vite.js build`
+
+**验证备注**：
+- 本机默认 Node v24.13.1 运行 Vite 时触发 crypto 初始化异常，已改用本机可用的 Node v22.18.0 完成构建验证
+- 当前本地 8080/5173 服务未运行，因此本轮未做浏览器运行态截图验证
 
 ---
 
@@ -1521,3 +1551,101 @@ SELECT COALESCE(AVG(response_time), 0) FROM call_logs
 ### 10.4 文档目录（2026-04-22 整理后）
 
 所有规划文档已从 `docs/` 迁移至 `.trae/`，导航入口：[`.trae/INDEX.md`](.trae/INDEX.md)
+
+---
+
+## 11. 2026-04-23 T5 收口与验收交接总结
+
+> 本节给没参与本轮开发的人接手用。结论先行：T5.1/T5.2 代码与构建已收口，数据库 SQL 已核验；Codex 当前 Windows 运行环境无法绑定/访问 socket，live 浏览器验收需要在用户本机正常终端或云端环境补做。
+
+### 11.1 本轮实际完成
+
+- 后端 `GET /api/v1/dashboard/overview` 已提供 Overview 首页真实统计。
+- 前端 Overview 4 张指标卡已从真实接口取数，不再依赖硬编码 Mock。
+- 加载中、接口失败或异常数据时，指标显示 `-`，不把失败误显示成真实 0，也不显示 NaN。
+- 趋势值按今日相对昨日计算，昨日为 0 时返回 `0.0`。
+- 今日/昨日统计 SQL 使用 `created_at >= ... AND created_at < ...` 时间范围查询。
+- 金额趋势使用 `BigDecimal`，避免小数金额被 `longValue()` 截断。
+
+### 11.2 本轮改动文件
+
+- `backend/src/main/java/com/aikey/service/DashboardService.java`
+- `frontend/src/api/dashboard.js`
+- `frontend/src/views/Overview.vue`
+- `SUMMARY.md`
+- `.trae/planning/progress-v2.0.md`
+- `.trae/INDEX.md`
+- `C:\Users\26404\.claude\telos\projects.md`
+- `C:\Users\26404\.claude\telos\learned.md`
+- `C:\Users\26404\.claude\telos\skills.md`
+
+### 11.3 成功验证
+
+- 后端构建通过：`mvn clean compile -DskipTests`
+- 前端构建通过：使用 Node v22.18.0 执行 `node node_modules/vite/bin/vite.js build`
+- Docker 中 MySQL/Redis 容器运行正常。
+- 通过 `docker exec aikey-mysql mysql ...` 核验 `call_logs` 统计口径：
+  - 今日：`todayCalls=0`、`todayTokens=0`、`todayCost=0.000000`、`avgResponseTime=0`
+  - 昨日：`yesterdayCalls=22`、`yesterdayTokens=10950`、`yesterdayAvgResponseTime=8708.85`
+- 已生成浏览器形态截图：`artifacts/overview-browser-acceptance.png`
+
+### 11.4 未完成的 live 验收与原因
+
+本轮没有把截图冒充为 live server 验收。Codex 当前运行环境存在 Windows Sockets 10106/UNKNOWN 级别问题：
+
+- `curl.exe` 访问 localhost 失败：无法加载或初始化请求。
+- Node HTTP 访问 `127.0.0.1:8080` 失败：`connect UNKNOWN`。
+- Spring Boot 启动到 Tomcat 绑定阶段失败：`java.net.SocketException: Unrecognized Windows Sockets error: 10106: socket`。
+- Vite 监听 `127.0.0.1:5173` 失败：`listen UNKNOWN`。
+
+因此当前状态应区分为：
+
+| 层级 | 状态 |
+|------|------|
+| 代码实现 | 已完成 |
+| 后端编译 | 已通过 |
+| 前端构建 | 已通过 |
+| DB SQL 口径 | 已核验 |
+| live HTTP 接口 | Codex 环境受 socket 问题阻塞 |
+| live 浏览器截图 | 待用户本机正常终端或云端补验 |
+
+### 11.5 后续测试步骤
+
+1. 确认 Docker 容器运行：`docker ps`，应看到 `aikey-mysql` 和 `aikey-redis`。
+2. 启动后端：在 `backend/` 下运行 Maven Spring Boot 启动命令。
+3. 启动前端：在 `frontend/` 下优先使用 Node v22.18.0 运行 Vite。
+4. 浏览器打开前端地址，使用 `enterprise_admin / admin123` 登录。
+5. 进入 Overview 首页，检查 4 张指标卡是否来自真实接口。
+6. 打开开发者工具 Network，确认 `/api/v1/dashboard/overview` 返回 200。
+7. 对照数据库：
+   ```sql
+   SELECT COUNT(*) FROM call_logs
+   WHERE created_at >= CURDATE()
+     AND created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY);
+   ```
+   结果应与 Overview 的今日调用量一致。
+
+### 11.6 可抽象成长期能力的方法
+
+- **最后一步收口法**：先读 `SUMMARY.md` + telos 长期记忆，确认权威进度，再读现有代码，避免重复实现已经存在的 Controller/DTO。
+- **Dashboard 真实数据接入模式**：后端聚合 DTO + Service 统计，前端 API wrapper + 页面加载状态 + 异常 fallback。
+- **统计 SQL 正确性模式**：统计日期不要用 `DATE(created_at)` 包列；优先用闭开时间范围，兼顾准确性与索引。
+- **金额趋势计算模式**：金额、成本、余额类字段保留 `BigDecimal` 精度，不用 `longValue()` 做趋势计算。
+- **验收分层诊断模式**：把构建、数据库、HTTP 服务、浏览器 UI 分层验证；某一层失败时不把结论扩散到其他层。
+- **Windows 本地工具链避坑**：PowerShell JSON 内联、Node 版本、Windows socket 错误要单独隔离，不要误判为业务 bug。
+
+### 11.7 关键决策记录
+
+用户侧决策：
+
+- 要求每次开始前先读取 `C:\Users\26404\.claude\telos` 长期记忆。
+- 要求先跑本地测试，再给浏览器形态截图验收。
+- 要求最后把本次开发经验、决策、成功步骤写入长期记忆并更新文档。
+
+执行侧决策：
+
+- 以 `SUMMARY.md` 第 10 节和 telos `projects.md` 作为当前权威状态。
+- 复用已有 DashboardController/VO，只修正 Service 和前端接入，不重建重复结构。
+- 将 Dashboard 统计 SQL 改为时间范围查询，并保留金额小数精度。
+- 保留 `getDashboardOverview()`，新增 `getOverviewStats()` 作为前端语义别名，降低破坏面。
+- live server 因 socket 层失败时，明确标注截图性质，不把静态形态图说成运行态验收。

@@ -21,7 +21,7 @@
             <div class="stat-value">{{ formattedCalls }}</div>
             <div class="stat-label">今日调用次数</div>
             <div :class="['stat-trend', trendClass(stats.todayCallsTrend)]">
-              <el-icon><ArrowUp v-if="stats.todayCallsTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <el-icon v-if="isTrendAvailable(stats.todayCallsTrend)"><ArrowUp v-if="stats.todayCallsTrend >= 0" /><ArrowDown v-else /></el-icon>
               <span>{{ trendText(stats.todayCallsTrend) }}</span>
             </div>
           </div>
@@ -38,7 +38,7 @@
             <div class="stat-value">{{ formattedTokens }}</div>
             <div class="stat-label">Token消耗量</div>
             <div :class="['stat-trend', trendClass(stats.todayTokensTrend)]">
-              <el-icon><ArrowUp v-if="stats.todayTokensTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <el-icon v-if="isTrendAvailable(stats.todayTokensTrend)"><ArrowUp v-if="stats.todayTokensTrend >= 0" /><ArrowDown v-else /></el-icon>
               <span>{{ trendText(stats.todayTokensTrend) }}</span>
             </div>
           </div>
@@ -55,7 +55,7 @@
             <div class="stat-value">{{ formattedCost }}</div>
             <div class="stat-label">今日费用</div>
             <div :class="['stat-trend', trendClass(stats.todayCostTrend)]">
-              <el-icon><ArrowUp v-if="stats.todayCostTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <el-icon v-if="isTrendAvailable(stats.todayCostTrend)"><ArrowUp v-if="stats.todayCostTrend >= 0" /><ArrowDown v-else /></el-icon>
               <span>{{ trendText(stats.todayCostTrend) }}</span>
             </div>
           </div>
@@ -72,7 +72,7 @@
             <div class="stat-value">{{ formattedResponseTime }}</div>
             <div class="stat-label">平均响应时间</div>
             <div :class="['stat-trend', trendClass(stats.avgResponseTimeTrend)]">
-              <el-icon><ArrowUp v-if="stats.avgResponseTimeTrend >= 0" /><ArrowDown v-else /></el-icon>
+              <el-icon v-if="isTrendAvailable(stats.avgResponseTimeTrend)"><ArrowUp v-if="stats.avgResponseTimeTrend >= 0" /><ArrowDown v-else /></el-icon>
               <span>{{ trendText(stats.avgResponseTimeTrend) }}</span>
             </div>
           </div>
@@ -175,7 +175,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useThemeStore } from '@/stores/theme.js'
-import { getDashboardOverview } from '@/api/dashboard.js'
+import { getOverviewStats } from '@/api/dashboard.js'
 
 const themeStore = useThemeStore()
 
@@ -191,14 +191,17 @@ const stats = ref({
 })
 
 const loading = ref(true)
+const statsLoadFailed = ref(false)
 
 const formattedCalls = computed(() => {
+  if (isMetricUnavailable()) return '-'
   const n = stats.value.todayCalls
   if (n >= 10000) return (n / 10000).toFixed(1) + '万'
   return n.toLocaleString()
 })
 
 const formattedTokens = computed(() => {
+  if (isMetricUnavailable()) return '-'
   const n = stats.value.todayTokens
   if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
   if (n >= 10000) return (n / 10000).toFixed(1) + '万'
@@ -206,31 +209,46 @@ const formattedTokens = computed(() => {
 })
 
 const formattedCost = computed(() => {
+  if (isMetricUnavailable()) return '-'
   return '¥' + Number(stats.value.todayCost).toFixed(2)
 })
 
 const formattedResponseTime = computed(() => {
+  if (isMetricUnavailable()) return '-'
   return stats.value.avgResponseTime + 'ms'
 })
 
 function trendClass(val) {
+  if (!isTrendAvailable(val)) return 'neutral'
   return val >= 0 ? 'up' : 'down'
 }
 
 function trendText(val) {
+  if (!isTrendAvailable(val)) return '-'
   const sign = val >= 0 ? '+' : ''
   return sign + val + '%'
+}
+
+function isMetricUnavailable() {
+  return loading.value || statsLoadFailed.value
+}
+
+function isTrendAvailable(val) {
+  return !isMetricUnavailable() && Number.isFinite(Number(val))
 }
 
 async function loadStats() {
   try {
     loading.value = true
-    const res = await getDashboardOverview()
-    if (res.code === 200) {
+    statsLoadFailed.value = false
+    const res = await getOverviewStats()
+    if (res.code === 200 && res.data) {
       stats.value = res.data
+    } else {
+      statsLoadFailed.value = true
     }
   } catch (e) {
-    // 静默失败，保留占位 0
+    statsLoadFailed.value = true
   } finally {
     loading.value = false
   }
@@ -381,6 +399,7 @@ onMounted(() => {
 }
 .stat-trend.up { color: #3B82F6; }
 .stat-trend.down { color: #F43F5E; }
+.stat-trend.neutral { color: rgba(248, 250, 252, 0.45); }
 
 /* 快捷操作 */
 .action-section {
