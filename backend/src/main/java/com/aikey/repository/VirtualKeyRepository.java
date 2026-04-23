@@ -48,6 +48,8 @@ public interface VirtualKeyRepository extends JpaRepository<VirtualKey, Long>, J
      */
     List<VirtualKey> findByStatusAndDeleted(Integer status, Integer deleted);
 
+    List<VirtualKey> findByTeamIdInAndDeleted(List<Long> teamIds, Integer deleted);
+
     /**
      * 根据用户ID和删除标记分页查询虚拟Key
      *

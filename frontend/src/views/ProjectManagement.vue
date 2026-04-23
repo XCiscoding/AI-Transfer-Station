@@ -19,15 +19,35 @@
             </el-input>
           </el-form-item>
 
+          <el-form-item v-if="showTeamScopeSelect" label="团队">
+            <el-select
+              v-model="selectedTeamId"
+              placeholder="选择团队"
+              class="team-select"
+              @change="handleTeamScopeChange"
+            >
+              <el-option
+                v-for="team in teamOptions"
+                :key="team.id"
+                :label="team.teamName"
+                :value="team.id"
+              />
+            </el-select>
+          </el-form-item>
+
           <el-form-item>
             <el-button @click="resetSearch">重置</el-button>
           </el-form-item>
         </el-form>
-        <el-button type="primary" class="add-btn" :disabled="!canManageCurrentTeamContext" @click="handleAdd">
+        <el-button v-if="canEditProjects" type="primary" class="add-btn" :disabled="!canReadCurrentTeamContext" @click="handleAdd">
           <el-icon><Plus /></el-icon>
           新增项目
         </el-button>
       </div>
+    </div>
+
+    <div v-if="isReadonlyUser && !teamContextBlockedReason" class="team-context-tip glass-card">
+      当前为普通用户视角，仅可查看所在团队的项目。
     </div>
 
     <div v-if="teamContextBlockedReason" class="team-context-tip glass-card">
@@ -101,7 +121,7 @@
 
         <el-table-column label="操作" width="160" fixed="right" align="center">
           <template #default="{ row }">
-            <div class="action-buttons">
+            <div v-if="canEditProjects" class="action-buttons">
               <el-button type="primary" link size="small" @click="handleEdit(row)">
                 <el-icon><Edit /></el-icon>编辑
               </el-button>
@@ -109,6 +129,7 @@
                 <el-icon><Delete /></el-icon>删除
               </el-button>
             </div>
+            <el-tag v-else size="small" type="info">只读</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -243,13 +264,18 @@ const loading = ref(false)
 const teamOptions = ref([])
 const currentUser = ref(null)
 const currentTeam = ref(null)
+const selectedTeamId = ref(null)
 
 const isSuperAdmin = computed(() => Boolean(currentUser.value?.isSuperAdmin || currentUser.value?.roles?.includes('SUPER_ADMIN')))
-const currentTeamId = computed(() => currentTeam.value?.id || null)
+const isTeamOwner = computed(() => Boolean(currentUser.value?.isTeamOwner))
+const isReadonlyUser = computed(() => !isSuperAdmin.value && !isTeamOwner.value)
+const currentTeamId = computed(() => selectedTeamId.value || currentTeam.value?.id || null)
 const currentTeamName = computed(() => currentTeam.value?.teamName || '')
 const teamContextReady = ref(false)
 const teamContextBlockedReason = ref('')
-const canManageCurrentTeamContext = computed(() => isSuperAdmin.value || (teamContextReady.value && !!currentTeamId.value && !teamContextBlockedReason.value))
+const canReadCurrentTeamContext = computed(() => isSuperAdmin.value || (teamContextReady.value && !!currentTeamId.value && !teamContextBlockedReason.value))
+const canEditProjects = computed(() => isSuperAdmin.value || isTeamOwner.value)
+const showTeamScopeSelect = computed(() => !isSuperAdmin.value && teamOptions.value.length > 1)
 
 const searchForm = reactive({ keyword: '' })
 const pagination = reactive({ page: 1, size: 10, total: 0 })
@@ -314,15 +340,20 @@ async function fetchCurrentTeam() {
     return
   }
   try {
-    const res = await getTeamList({ page: 1, size: 10 })
+    const res = await getTeamList({ page: 1, size: 100 })
     const records = res.code === 200 && res.data ? (res.data.records || []) : []
-    currentTeam.value = records[0] || null
+    teamOptions.value = records
+    const preferredTeam = records.find(item => item.id === selectedTeamId.value) || records[0] || null
+    currentTeam.value = preferredTeam
+    selectedTeamId.value = preferredTeam?.id || null
     teamContextReady.value = Boolean(currentTeam.value)
-    teamContextBlockedReason.value = currentTeam.value ? '' : '当前账号没有可管理团队，暂时无法创建或管理项目。'
+    teamContextBlockedReason.value = currentTeam.value ? '' : '当前账号没有可查看团队，暂时无法查看项目。'
   } catch (error) {
     currentTeam.value = null
+    selectedTeamId.value = null
+    teamOptions.value = []
     teamContextReady.value = false
-    teamContextBlockedReason.value = '当前账号没有可用的团队上下文，暂时无法创建或管理项目。'
+    teamContextBlockedReason.value = '当前账号没有可用的团队上下文，暂时无法查看项目。'
     console.error('获取当前团队失败:', error)
   }
 }
@@ -377,6 +408,12 @@ function handleSearch() {
   fetchList()
 }
 
+function handleTeamScopeChange(teamId) {
+  currentTeam.value = teamOptions.value.find(item => item.id === teamId) || null
+  pagination.page = 1
+  fetchList()
+}
+
 function resetSearch() {
   searchForm.keyword = ''
   pagination.page = 1
@@ -395,7 +432,11 @@ function handlePageChange(val) {
 }
 
 function handleAdd() {
-  if (!canManageCurrentTeamContext.value) {
+  if (!canEditProjects.value) {
+    ElMessage.warning('普通用户只能查看项目，不能新增项目')
+    return
+  }
+  if (!canReadCurrentTeamContext.value) {
     ElMessage.warning(teamContextBlockedReason.value || '未识别到当前团队，暂时无法创建项目')
     return
   }
@@ -413,6 +454,10 @@ function handleAdd() {
 }
 
 function handleEdit(row) {
+  if (!canEditProjects.value) {
+    ElMessage.warning('普通用户只能查看项目，不能编辑项目')
+    return
+  }
   isEdit.value = true
   currentEditId.value = row.id
   Object.assign(formData, {
@@ -432,7 +477,7 @@ function buildProjectPayload() {
     description: formData.description,
     quotaLimit: formData.quotaLimit,
     quotaWeight: formData.quotaWeight,
-    ...(isSuperAdmin.value ? { teamId: formData.teamId } : {})
+    ...(isSuperAdmin.value ? { teamId: formData.teamId } : { teamId: currentTeamId.value })
   }
 }
 
@@ -444,7 +489,11 @@ function handleSubmit() {
       ElMessage.error('未获取到当前用户信息，请重新登录')
       return
     }
-    if (!canManageCurrentTeamContext.value) {
+    if (!canEditProjects.value) {
+      ElMessage.error('普通用户只能查看项目，不能提交修改')
+      return
+    }
+    if (!canReadCurrentTeamContext.value) {
       ElMessage.error(teamContextBlockedReason.value || '未识别到当前团队，无法提交项目')
       return
     }
@@ -476,6 +525,10 @@ function handleSubmit() {
 }
 
 function handleDelete(row) {
+  if (!canEditProjects.value) {
+    ElMessage.warning('普通用户只能查看项目，不能删除项目')
+    return
+  }
   ElMessageBox.confirm(
     `确定要删除项目「${row.projectName}」吗？`,
     '删除确认',
@@ -586,6 +639,8 @@ function getQuotaColor(row) {
 .filter-form :deep(.el-form-item) { margin-bottom: 0; margin-right: 0; }
 .filter-form :deep(.el-form-item__label) { color: rgba(248, 250, 252, 0.7); font-weight: 500; font-size: 13px; }
 .search-input { width: 280px; }
+
+.team-select { width: 180px; }
 
 .filter-form :deep(.el-input__wrapper) {
   background: rgba(255, 255, 255, 0.06);

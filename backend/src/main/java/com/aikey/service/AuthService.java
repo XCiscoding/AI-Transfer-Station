@@ -6,6 +6,7 @@ import com.aikey.dto.auth.LoginResponse;
 import com.aikey.dto.auth.UserInfoResponse;
 import com.aikey.entity.User;
 import com.aikey.repository.TeamRepository;
+import com.aikey.repository.TeamMemberRepository;
 import com.aikey.repository.UserRepository;
 import com.aikey.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,8 @@ public class AuthService {
     private final UserRepository userRepository;
 
     private final TeamRepository teamRepository;
+
+    private final TeamMemberRepository teamMemberRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -116,6 +119,7 @@ public class AuthService {
 
         boolean isSuperAdmin = roleCodes.contains(SUPER_ADMIN_ROLE);
         boolean isTeamOwner = user.getId() != null && teamRepository.existsByOwnerIdAndDeleted(user.getId(), 0);
+        boolean isTeamMember = user.getId() != null && teamMemberRepository.existsByUserId(user.getId());
 
         log.info("用户登录成功: {}", username);
 
@@ -128,6 +132,7 @@ public class AuthService {
                 .roles(roleCodes)
                 .isSuperAdmin(isSuperAdmin)
                 .isTeamOwner(isTeamOwner)
+                .isTeamMember(isTeamMember)
                 .status(user.getStatus())
                 .build();
     }
@@ -149,6 +154,7 @@ public class AuthService {
 
         boolean isSuperAdmin = roleCodes.contains(SUPER_ADMIN_ROLE);
         boolean isTeamOwner = user.getId() != null && teamRepository.existsByOwnerIdAndDeleted(user.getId(), 0);
+        boolean isTeamMember = user.getId() != null && teamMemberRepository.existsByUserId(user.getId());
 
         return UserInfoResponse.builder()
                 .userId(user.getId())
@@ -157,6 +163,7 @@ public class AuthService {
                 .roles(roleCodes)
                 .isSuperAdmin(isSuperAdmin)
                 .isTeamOwner(isTeamOwner)
+                .isTeamMember(isTeamMember)
                 .status(user.getStatus())
                 .build();
     }

@@ -1,5 +1,6 @@
 package com.aikey.service;
 
+import com.aikey.dto.auth.UserInfoResponse;
 import com.aikey.dto.team.TeamMemberAddRequest;
 import com.aikey.dto.team.TeamMemberVO;
 import com.aikey.dto.team.TeamOwnerTransferRequest;
@@ -27,11 +28,11 @@ public class TeamMemberService {
 
     private static final String OWNER_ROLE = "owner";
     private static final String MEMBER_ROLE = "member";
-    private static final String SUPER_ADMIN_ROLE = "SUPER_ADMIN";
 
     private final TeamRepository teamRepository;
     private final TeamMemberRepository teamMemberRepository;
     private final UserRepository userRepository;
+    private final AuthService authService;
 
     @Transactional(readOnly = true)
     public List<TeamMemberVO> listMembers(Long teamId) {
@@ -157,8 +158,11 @@ public class TeamMemberService {
     }
 
     private boolean isSuperAdmin(User user) {
-        return user.getRoles() != null && user.getRoles().stream()
-                .anyMatch(role -> SUPER_ADMIN_ROLE.equals(role.getRoleCode()));
+        if (user == null || !StringUtils.hasText(user.getUsername())) {
+            return false;
+        }
+        UserInfoResponse userInfo = authService.getUserInfo(user.getUsername());
+        return Boolean.TRUE.equals(userInfo.getIsSuperAdmin());
     }
 
     private void normalizeOwnerRole(Team team, Long ownerUserId) {

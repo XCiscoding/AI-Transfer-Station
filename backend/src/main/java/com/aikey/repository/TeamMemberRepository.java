@@ -10,9 +10,13 @@ public interface TeamMemberRepository extends JpaRepository<TeamMember, Long> {
 
     List<TeamMember> findByTeamIdOrderByJoinedAtAsc(Long teamId);
 
+    List<TeamMember> findByUserIdOrderByJoinedAtAsc(Long userId);
+
     Optional<TeamMember> findByTeamIdAndUserId(Long teamId, Long userId);
 
     boolean existsByTeamIdAndUserId(Long teamId, Long userId);
+
+    boolean existsByUserId(Long userId);
 
     long countByTeamId(Long teamId);
 

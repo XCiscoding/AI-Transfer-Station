@@ -10,6 +10,7 @@ import com.aikey.entity.Team;
 import com.aikey.entity.User;
 import com.aikey.exception.BusinessException;
 import com.aikey.repository.TeamRepository;
+import com.aikey.repository.TeamMemberRepository;
 import com.aikey.repository.UserRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,6 +39,7 @@ public class TeamService {
 
     private final TeamRepository teamRepository;
     private final UserRepository userRepository;
+    private final TeamMemberRepository teamMemberRepository;
     private final ModelGroupService modelGroupService;
     private final TeamMemberService teamMemberService;
     private final AuthService authService;
@@ -95,12 +97,22 @@ public class TeamService {
     public PageResult<TeamVO> listTeams(int page, int size, String keyword) {
         User currentUser = getCurrentUser();
         boolean superAdmin = isSuperAdmin(currentUser);
+        boolean teamOwner = isTeamOwner(currentUser.getId());
+        List<Long> readableTeamIds = superAdmin || teamOwner
+                ? Collections.emptyList()
+                : getMemberTeamIds(currentUser.getId());
 
         Specification<Team> spec = (root, query, cb) -> {
             var predicates = cb.conjunction();
             predicates = cb.and(predicates, cb.equal(root.get("deleted"), 0));
-            if (!superAdmin) {
+            if (!superAdmin && teamOwner) {
                 predicates = cb.and(predicates, cb.equal(root.get("owner").get("id"), currentUser.getId()));
+            } else if (!superAdmin) {
+                if (readableTeamIds.isEmpty()) {
+                    predicates = cb.and(predicates, cb.disjunction());
+                } else {
+                    predicates = cb.and(predicates, root.get("id").in(readableTeamIds));
+                }
             }
             if (StringUtils.hasText(keyword)) {
                 if (superAdmin) {
@@ -284,6 +296,16 @@ public class TeamService {
         }
         UserInfoResponse userInfo = authService.getUserInfo(user.getUsername());
         return Boolean.TRUE.equals(userInfo.getIsSuperAdmin());
+    }
+
+    private List<Long> getMemberTeamIds(Long userId) {
+        if (userId == null) {
+            return Collections.emptyList();
+        }
+        return teamMemberRepository.findByUserIdOrderByJoinedAtAsc(userId).stream()
+                .map(member -> member.getTeam().getId())
+                .distinct()
+                .toList();
     }
 
     private String toJson(List<Long> ids) {

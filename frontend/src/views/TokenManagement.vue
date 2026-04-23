@@ -5,18 +5,24 @@
       <div class="tab-header">
         <span class="tab-label page-title">
           <el-icon><Connection /></el-icon>
-          虚拟Key管理
+          {{ pageTitle }}
         </span>
         <div class="header-actions">
           <el-tag v-if="canManageTeamContext" type="primary" effect="dark" round>
             当前团队：{{ teamContext.teamName }}
           </el-tag>
-          <el-button type="primary" class="add-btn" :disabled="!canManageTeamContext" @click="handleAdd">
+          <el-tag v-else-if="isPersonalView" type="info" effect="plain" round>
+            只显示分配给我的密钥
+          </el-tag>
+          <el-button v-if="canManageKeys" type="primary" class="add-btn" :disabled="!canCreateVirtualKey" @click="handleAdd">
             新增虚拟Key
           </el-button>
         </div>
       </div>
-      <div v-if="!hasTeamContext" class="team-context-tip">
+      <div v-if="isPersonalView" class="team-context-tip">
+        当前为低完成度领取密钥版本：你可以查看并复制团队管理员已发放给你的密钥，暂不能自行创建。
+      </div>
+      <div v-else-if="!hasTeamContext" class="team-context-tip">
         请从团队管理页进入令牌创建流程；当前页面仅支持在团队上下文下新建 Key。
       </div>
       <div v-else-if="teamContextBlockedReason" class="team-context-tip">
@@ -108,6 +114,7 @@
           <el-table-column prop="status" label="状态" width="90" align="center">
             <template #default="{ row }">
               <el-switch
+                v-if="canManageKeys"
                 v-model="row.status"
                 :active-value="1"
                 :inactive-value="0"
@@ -116,6 +123,9 @@
                 @change="(val) => handleVirtualStatusChange(row, val)"
                 :loading="row.statusLoading"
               />
+              <el-tag v-else :type="row.status === 1 ? 'success' : 'info'" size="small">
+                {{ row.status === 1 ? '可用' : '停用' }}
+              </el-tag>
             </template>
           </el-table-column>
 
@@ -131,19 +141,19 @@
             </template>
           </el-table-column>
 
-          <el-table-column label="操作" width="240" align="center">
+          <el-table-column label="操作" :width="canManageKeys ? 240 : 120" align="center">
             <template #default="{ row }">
               <div class="action-buttons">
                 <el-button type="success" link size="small" @click="handleShowAccessInfo(row)">
-                  <el-icon><InfoFilled /></el-icon>接入
+                  <el-icon><InfoFilled /></el-icon>{{ isPersonalView ? '领取' : '接入' }}
                 </el-button>
-                <el-button type="primary" link size="small" @click="handleVirtualEdit(row)">
+                <el-button v-if="canManageKeys" type="primary" link size="small" @click="handleVirtualEdit(row)">
                   <el-icon><Edit /></el-icon>编辑
                 </el-button>
-                <el-button type="warning" link size="small" @click="handleVirtualRefresh(row)">
+                <el-button v-if="canManageKeys" type="warning" link size="small" @click="handleVirtualRefresh(row)">
                   <el-icon><Refresh /></el-icon>刷新
                 </el-button>
-                <el-button type="danger" link size="small" @click="handleVirtualDelete(row)">
+                <el-button v-if="canManageKeys" type="danger" link size="small" @click="handleVirtualDelete(row)">
                   <el-icon><Delete /></el-icon>删除
                 </el-button>
               </div>
@@ -467,6 +477,21 @@ import { getTeamMembers } from '@/api/team'
 const route = useRoute()
 const router = useRouter()
 
+function readStoredUserInfo() {
+  try {
+    return JSON.parse(localStorage.getItem('userInfo') || 'null')
+  } catch {
+    return null
+  }
+}
+
+const currentUser = ref(readStoredUserInfo())
+const isSuperAdmin = computed(() => Boolean(currentUser.value?.isSuperAdmin || currentUser.value?.roles?.includes('SUPER_ADMIN')))
+const isTeamOwner = computed(() => Boolean(currentUser.value?.isTeamOwner))
+const canManageKeys = computed(() => isSuperAdmin.value || isTeamOwner.value)
+const isPersonalView = computed(() => !canManageKeys.value)
+const pageTitle = computed(() => isPersonalView.value ? '领取密钥' : '虚拟Key管理')
+
 const teamContext = reactive({
   teamId: null,
   teamName: '',
@@ -476,7 +501,8 @@ const teamContext = reactive({
 const hasTeamContext = computed(() => !!teamContext.teamId)
 const teamContextReady = ref(false)
 const teamContextBlockedReason = ref('')
-const canManageTeamContext = computed(() => hasTeamContext.value && teamContextReady.value && !teamContextBlockedReason.value)
+const canManageTeamContext = computed(() => canManageKeys.value && hasTeamContext.value && teamContextReady.value && !teamContextBlockedReason.value)
+const canCreateVirtualKey = computed(() => canManageKeys.value && canManageTeamContext.value)
 const modelGroupOptions = ref([])
 const projectOptions = ref([])
 const memberOptions = ref([])
@@ -627,7 +653,7 @@ async function ensureTeamContextAccess() {
 }
 
 function maybeAutoOpenCreate() {
-  if (!canManageTeamContext.value || teamContext.autoCreateHandled || route.query.autoCreate !== '1') {
+  if (!canCreateVirtualKey.value || teamContext.autoCreateHandled || route.query.autoCreate !== '1') {
     return
   }
   teamContext.autoCreateHandled = true
@@ -709,19 +735,24 @@ const virtualFormRules = {
 let virtualSearchTimer = null
 
 onMounted(async () => {
+  currentUser.value = readStoredUserInfo()
   syncTeamContextFromRoute()
   fetchVirtualKeyList()
-  fetchModelGroups()
-  await ensureTeamContextAccess()
-  maybeAutoOpenCreate()
+  if (canManageKeys.value) {
+    fetchModelGroups()
+    await ensureTeamContextAccess()
+    maybeAutoOpenCreate()
+  }
 })
 
 watch(
   () => [route.query.teamId, route.query.teamName, route.query.autoCreate],
   async () => {
     syncTeamContextFromRoute()
-    await ensureTeamContextAccess()
-    maybeAutoOpenCreate()
+    if (canManageKeys.value) {
+      await ensureTeamContextAccess()
+      maybeAutoOpenCreate()
+    }
   }
 )
 
@@ -772,6 +803,10 @@ function buildVirtualKeyPayload() {
 }
 
 async function handleVirtualCreate() {
+  if (!canManageKeys.value) {
+    ElMessage.warning('普通用户只能领取和查看已分配的密钥')
+    return
+  }
   if (!hasTeamContext.value) {
     ElMessage.warning('请从团队管理页进入后再创建 Key')
     return
@@ -800,6 +835,10 @@ async function handleVirtualCreate() {
 }
 
 async function handleVirtualUpdate() {
+  if (!canManageKeys.value) {
+    ElMessage.warning('普通用户不能编辑密钥')
+    return
+  }
   if (!currentVirtualEditId.value) return
 
   virtualSubmitLoading.value = true
@@ -840,6 +879,10 @@ async function handleVirtualDeleteAction(id) {
 }
 
 function handleAdd() {
+  if (!canManageKeys.value) {
+    ElMessage.warning('普通用户不能创建密钥，请联系团队管理员发放')
+    return
+  }
   if (!hasTeamContext.value) {
     ElMessage.warning('请从团队管理页进入后再创建 Key')
     return
@@ -886,6 +929,10 @@ function handleVirtualPageChange(val) {
 }
 
 async function handleVirtualEdit(row) {
+  if (!canManageKeys.value) {
+    handleShowAccessInfo(row)
+    return
+  }
   isVirtualEdit.value = true
   currentVirtualEditId.value = row.id
   resetVirtualFormData()
@@ -973,6 +1020,10 @@ function handleVirtualSubmit() {
 }
 
 async function handleVirtualRefresh(row) {
+  if (!canManageKeys.value) {
+    ElMessage.warning('普通用户不能刷新密钥')
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `刷新后，旧Key值「${row.keyValue}」立即失效，确定继续？`,
@@ -997,6 +1048,10 @@ async function handleVirtualRefresh(row) {
 }
 
 function handleVirtualDelete(row) {
+  if (!canManageKeys.value) {
+    ElMessage.warning('普通用户不能删除密钥')
+    return
+  }
   ElMessageBox.confirm(
     `确定要删除虚拟Key「${row.keyName}」吗？删除后不可恢复。`,
     '删除确认',
@@ -1012,6 +1067,10 @@ function handleVirtualDelete(row) {
 }
 
 async function handleVirtualStatusChange(row, newStatus) {
+  if (!canManageKeys.value) {
+    ElMessage.warning('普通用户不能修改密钥状态')
+    return
+  }
   row.statusLoading = true
   try {
     const res = await toggleVirtualKeyStatus(row.id)

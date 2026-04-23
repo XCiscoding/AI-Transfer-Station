@@ -85,6 +85,7 @@ public class AlertRuleController {
     @PostMapping("/check-now")
     @Operation(summary = "立即触发一次告警检查（测试用）")
     public Result<String> checkNow() {
+        alertRuleService.assertRuleManagementAllowed();
         alertCheckService.checkAlertRules();
         return Result.success("告警检查已执行，请查看历史记录");
     }

@@ -43,7 +43,7 @@ const routes = [
         path: 'channels',
         name: 'Channels',
         component: () => import('@/views/ChannelManagement.vue'),
-        meta: { title: '渠道管理', requiresAuth: true }
+        meta: { title: '渠道管理', requiresAuth: true, requiresSuperAdmin: true }
       },
       {
         path: 'teams',
@@ -78,7 +78,7 @@ const routes = [
       {
         path: 'profile',
         name: 'Profile',
-        component: () => import('@/views/Placeholder.vue'),
+        component: () => import('@/views/Profile.vue'),
         meta: { title: '个人中心', requiresAuth: true }
       }
     ]
@@ -98,14 +98,26 @@ function getStoredRoles() {
   }
 }
 
+function getStoredUserInfo() {
+  try {
+    return JSON.parse(localStorage.getItem('userInfo') || 'null')
+  } catch {
+    return null
+  }
+}
+
 // 路由守卫：未登录跳转到登录页
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
   const roles = getStoredRoles()
+  const userInfo = getStoredUserInfo()
+  const isSuperAdmin = Boolean(userInfo?.isSuperAdmin || roles.includes('SUPER_ADMIN'))
 
   if (to.meta.requiresAuth && !token) {
     next('/login')
   } else if (to.path === '/login' && token) {
+    next('/')
+  } else if (to.meta.requiresSuperAdmin && !isSuperAdmin) {
     next('/')
   } else {
     void roles

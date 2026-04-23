@@ -16,44 +16,13 @@
         :collapse-transition="false"
         router
       >
-        <el-menu-item index="/">
-          <el-icon><HomeFilled /></el-icon>
-          <template #title>控制台首页</template>
-        </el-menu-item>
-
-        <el-menu-item index="/tokens">
-          <el-icon><Key /></el-icon>
-          <template #title>令牌管理</template>
-        </el-menu-item>
-
-        <el-menu-item index="/channels">
-          <el-icon><Share /></el-icon>
-          <template #title>渠道管理</template>
-        </el-menu-item>
-
-        <el-menu-item index="/teams">
-          <el-icon><UserFilled /></el-icon>
-          <template #title>团队管理</template>
-        </el-menu-item>
-
-        <el-menu-item index="/projects">
-          <el-icon><Folder /></el-icon>
-          <template #title>项目管理</template>
-        </el-menu-item>
-
-        <el-menu-item index="/analytics">
-          <el-icon><TrendCharts /></el-icon>
-          <template #title>数据看板</template>
-        </el-menu-item>
-
-        <el-menu-item index="/logs">
-          <el-icon><Document /></el-icon>
-          <template #title>请求日志</template>
-        </el-menu-item>
-
-        <el-menu-item index="/alerts">
-          <el-icon><Bell /></el-icon>
-          <template #title>告警管理</template>
+        <el-menu-item
+          v-for="item in visibleMenuItems"
+          :key="item.index"
+          :index="item.index"
+        >
+          <el-icon><component :is="item.icon" /></el-icon>
+          <template #title>{{ item.title }}</template>
         </el-menu-item>
 
         <el-divider />
@@ -143,6 +112,7 @@
               <span class="username">{{ username }}</span>
               <el-tag v-if="isEnterpriseAdmin" size="small" type="warning" effect="plain" class="role-badge">企业管理员</el-tag>
               <el-tag v-else-if="isTeamAdmin" size="small" type="success" effect="plain" class="role-badge">团队管理员</el-tag>
+              <el-tag v-else size="small" type="info" effect="plain" class="role-badge">普通用户</el-tag>
               <el-icon><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
@@ -237,6 +207,28 @@ function syncUserInfo() {
 const isEnterpriseAdmin = computed(() => Boolean(userInfo.value?.isSuperAdmin || getStoredRoles().includes('SUPER_ADMIN')))
 
 const isTeamAdmin = computed(() => Boolean(userInfo.value?.isTeamOwner))
+
+const visibleMenuItems = computed(() => {
+  const adminLike = isEnterpriseAdmin.value || isTeamAdmin.value
+  const items = [
+    { index: '/', icon: 'HomeFilled', title: '控制台首页' },
+    { index: '/tokens', icon: 'Key', title: adminLike ? '令牌管理' : '领取密钥' }
+  ]
+
+  if (isEnterpriseAdmin.value) {
+    items.push({ index: '/channels', icon: 'Share', title: '渠道管理' })
+  }
+
+  items.push(
+    { index: '/teams', icon: 'UserFilled', title: adminLike ? '团队管理' : '我的团队' },
+    { index: '/projects', icon: 'Folder', title: adminLike ? '项目管理' : '项目查看' },
+    { index: '/analytics', icon: 'TrendCharts', title: '数据看板' },
+    { index: '/logs', icon: 'Document', title: '请求日志' },
+    { index: '/alerts', icon: 'Bell', title: isEnterpriseAdmin.value ? '告警管理' : '告警通知' }
+  )
+
+  return items
+})
 
 const currentPageTitle = computed(() => {
   return route.meta.title || '当前页面'

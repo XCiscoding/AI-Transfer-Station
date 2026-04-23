@@ -8,6 +8,7 @@
         </div>
       </div>
       <div v-if="isTeamOwnerView" class="role-tip">模型分组由企业管理员统一配置</div>
+      <div v-else-if="isMemberView" class="role-tip">普通用户只读查看所在团队</div>
     </div>
 
     <div class="filter-card glass-card">
@@ -16,7 +17,7 @@
           <el-form-item label="搜索">
             <el-input
               v-model="searchForm.keyword"
-              :placeholder="isSuperAdmin ? '输入团队名称或编码' : isTeamOwnerView ? '输入成员用户名' : '当前账号没有团队管理权限'"
+              :placeholder="isSuperAdmin ? '输入团队名称或编码' : isTeamOwnerView ? '输入成员用户名' : '输入团队名称'"
               clearable
               @clear="handleSearch"
               @input="debounceSearch"
@@ -45,7 +46,7 @@
       </div>
     </div>
 
-    <div v-if="isSuperAdmin" class="table-card glass-card">
+    <div v-if="isSuperAdmin || isMemberView" class="table-card glass-card">
       <el-table
         :data="tableData"
         v-loading="loading"
@@ -123,9 +124,9 @@
           </template>
         </el-table-column>
 
-        <el-table-column :width="isSuperAdmin ? 300 : 240" label="操作" align="center">
+        <el-table-column :width="isSuperAdmin ? 300 : 120" label="操作" align="center">
           <template #default="{ row }">
-            <div class="action-buttons">
+            <div v-if="isSuperAdmin" class="action-buttons">
               <el-button type="success" link size="small" @click="handleIssueKey(row)">
                 <el-icon><Key /></el-icon>发放Key
               </el-button>
@@ -139,6 +140,7 @@
                 <el-icon><Delete /></el-icon>删除
               </el-button>
             </div>
+            <el-tag v-else size="small" type="info">只读</el-tag>
           </template>
         </el-table-column>
       </el-table>
@@ -475,11 +477,12 @@ const filteredMemberList = computed(() => {
 })
 
 const isTeamOwnerView = computed(() => !isSuperAdmin.value && isTeamOwner.value)
-const hasTeamManagementAccess = computed(() => isSuperAdmin.value || isTeamOwnerView.value)
+const isMemberView = computed(() => !isSuperAdmin.value && !isTeamOwner.value)
+const hasTeamManagementAccess = computed(() => isSuperAdmin.value || isTeamOwnerView.value || isMemberView.value)
 const roleTitle = computed(() => {
   if (isSuperAdmin.value) return '企业管理员视角'
   if (isTeamOwnerView.value) return '团队管理员视角'
-  return '团队管理受限'
+  return '普通用户视角'
 })
 const roleSubtitle = computed(() => {
   if (isSuperAdmin.value) {
@@ -488,16 +491,18 @@ const roleSubtitle = computed(() => {
   if (isTeamOwnerView.value) {
     return '查看自己负责的团队，管理成员并在团队上下文内发放 Key。'
   }
-  return '当前账号不是企业管理员或团队管理员，只能查看空态提示。'
+  return '查看自己所在团队及可用模型分组，不能修改团队配置。'
 })
 const emptyStateTitle = computed(() => {
   if (!hasTeamManagementAccess.value) return '当前账号没有团队管理权限'
   if (isTeamOwnerView.value) return '当前账号不是任何团队管理员'
+  if (isMemberView.value) return '当前账号暂未加入任何团队'
   return '暂无可管理团队'
 })
 const emptyStateText = computed(() => {
   if (!hasTeamManagementAccess.value) return '当前账号既不是企业管理员，也不是任何团队的 Team.owner。'
   if (isTeamOwnerView.value) return '当前账号虽然具备团队管理员身份标识，但还没有可进入的 owner 团队。'
+  if (isMemberView.value) return '请联系团队管理员先把该账号加入团队。'
   return '当前账号没有可进入的团队管理工作区。'
 })
 

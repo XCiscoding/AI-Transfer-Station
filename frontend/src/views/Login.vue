@@ -145,6 +145,7 @@ export default {
             roles: response.data.roles || [],
             isSuperAdmin: Boolean(response.data.isSuperAdmin || response.data.roles?.includes('SUPER_ADMIN')),
             isTeamOwner: Boolean(response.data.isTeamOwner),
+            isTeamMember: Boolean(response.data.isTeamMember),
             status: response.data.status
           }
 
@@ -156,7 +157,8 @@ export default {
                 ...meResponse.data,
                 roles: meResponse.data.roles || userInfo.roles,
                 isSuperAdmin: Boolean(meResponse.data.isSuperAdmin || meResponse.data.roles?.includes('SUPER_ADMIN')),
-                isTeamOwner: Boolean(meResponse.data.isTeamOwner)
+                isTeamOwner: Boolean(meResponse.data.isTeamOwner),
+                isTeamMember: Boolean(meResponse.data.isTeamMember)
               }
             }
           } catch (userInfoError) {

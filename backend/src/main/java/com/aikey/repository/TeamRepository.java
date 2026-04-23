@@ -21,6 +21,9 @@ public interface TeamRepository extends JpaRepository<Team, Long>, JpaSpecificat
     @EntityGraph(attributePaths = "owner")
     List<Team> findByOwnerIdAndDeleted(Long ownerId, Integer deleted);
 
+    @EntityGraph(attributePaths = "owner")
+    List<Team> findByIdInAndDeleted(List<Long> ids, Integer deleted);
+
     List<Team> findByOwnerUsernameAndDeleted(String username, Integer deleted);
 
     boolean existsByOwnerIdAndDeleted(Long ownerId, Integer deleted);

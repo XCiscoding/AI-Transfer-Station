@@ -32,5 +32,7 @@ public class LoginResponse {
 
     private Boolean isTeamOwner;
 
+    private Boolean isTeamMember;
+
     private Integer status;
 }

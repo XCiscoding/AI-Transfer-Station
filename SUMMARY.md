@@ -1649,3 +1649,132 @@ WHERE created_at >= CURDATE()
 - 将 Dashboard 统计 SQL 改为时间范围查询，并保留金额小数精度。
 - 保留 `getDashboardOverview()`，新增 `getOverviewStats()` 作为前端语义别名，降低破坏面。
 - live server 因 socket 层失败时，明确标注截图性质，不把静态形态图说成运行态验收。
+
+---
+
+## 12. 2026-04-23 低完成度多角色用户界面收口
+
+> 本节是当前最新接手重点。结论：管理员后台已有基础上，本轮补齐了企业管理员、团队管理员、普通用户三类账号的低完成度可用路径。后端权限边界已先收口，前端菜单和页面按角色降级展示；构建受本机 Maven/Node 随机数源问题阻塞，尚未做 live 浏览器验收。
+
+### 12.1 用户确认的最终决策
+
+- 先做低完成度版本。
+- 团队管理员在“项目管理”里仍可新增/编辑项目，范围限定为自己团队。
+- 普通用户也需要告警通知。
+- 团队管理员只接收自己团队相关告警，不能设置告警规则。
+- 普通用户只接收自己或自己团队相关告警，不能设置告警规则。
+- 普通用户的密钥管理改成“领取密钥”：只能查看/复制已分配 Key，不能自行创建。
+- 普通用户不需要渠道管理；渠道管理只保留给企业管理员。
+
+### 12.2 当前预设账号
+
+| 角色 | 账号 | 密码 | 说明 |
+|------|------|------|------|
+| 企业管理员 | `enterprise_admin` | `admin123` | `SUPER_ADMIN`，完整后台能力 |
+| 团队管理员 | `team_admin` | `team123456` | `USER` + `default-team.owner`，管理本团队 |
+| 普通用户 | `demo_user` | `user123456` | `USER` + `default-team` 成员，只读/领取 |
+
+实现入口：`backend/src/main/java/com/aikey/config/DataRepairRunner.java`
+
+启动修复器会幂等创建 `team_admin`、`demo_user`，并为 `demo_user` 创建演示虚拟 Key：
+
+```text
+普通用户演示Key = sk-demo-user-low-completion-001
+```
+
+### 12.3 已完成的权限边界
+
+#### 企业管理员
+
+- 可访问渠道管理。
+- 可创建/编辑/删除团队。
+- 可查看全部团队、项目、虚拟 Key。
+- 可设置告警规则，并可手动触发检测。
+- 可查看全部告警历史。
+
+#### 团队管理员
+
+- 不显示渠道管理。
+- 团队管理页展示自己拥有的团队工作区。
+- 可管理本团队成员。
+- 可在本团队上下文发放 Key。
+- 可在项目管理页新增/编辑/删除本团队项目。
+- 告警页只显示“告警通知”，不能设置规则。
+- 告警范围限定为自己团队相关对象。
+
+#### 普通用户
+
+- 不显示渠道管理。
+- 团队管理页只读查看自己加入的团队。
+- 项目管理页只读查看自己团队项目。
+- 令牌页变为“领取密钥”，只显示分配给自己的 Key，可复制接入信息。
+- 不能创建、编辑、刷新、删除、启停虚拟 Key。
+- 告警页只显示“告警通知”，不能设置规则。
+- 告警范围限定为自己团队、自己 Key、自己 user target。
+
+### 12.4 本轮关键改动
+
+后端：
+
+- `LoginResponse` / `UserInfoResponse` 新增 `isTeamMember`。
+- `AuthService` 在登录与 `/auth/me` 中返回 `isSuperAdmin`、`isTeamOwner`、`isTeamMember`。
+- `TeamService.listTeams()` 按角色返回可见团队。
+- `ProjectService.listProjects()` 按角色返回可见项目；团队管理员保留本团队项目新增/编辑能力；普通用户只读。
+- `VirtualKeyService.listVirtualKeys()` 按角色过滤 Key；普通用户只能看自己的 Key。
+- `AlertRuleService` 限制规则管理为企业管理员，并按用户可见范围过滤告警历史。
+- `UserController` 的用户列表/创建接口加 `SUPER_ADMIN` 限制。
+- `AlertRuleController.check-now` 增加企业管理员权限判断。
+
+前端：
+
+- `MainLayout.vue` 按角色生成侧边栏菜单。
+- `router/index.js` 为 `/channels` 增加 `requiresSuperAdmin` 守卫。
+- `Login.vue` 持久化 `isTeamMember`。
+- `TokenManagement.vue` 增加普通用户“领取密钥”视角。
+- `TeamManagement.vue` 增加普通用户只读视角。
+- `ProjectManagement.vue` 增加普通用户只读视角，并为非企业管理员增加低成本团队选择器。
+- `AlertManagement.vue` 非企业管理员只显示告警通知。
+- 新增 `frontend/src/views/Profile.vue`，展示当前账号、权限范围和预设账号。
+
+### 12.5 验证状态
+
+已完成：
+
+- `git diff --check` 通过，无 whitespace error。
+- 静态检索确认 `/channels` 路由守卫、`Profile.vue` 路由、演示账号常量、普通用户只读/领取密钥文案均已落地。
+
+未完成：
+
+- 后端 Maven 构建未能执行。
+- 前端 npm/Vite 构建未能执行。
+- 未做 live 浏览器验收。
+
+阻塞原因：
+
+- `mvn -version` 启动失败：`Program 'mvn.cmd' failed to run ... 找不到指定的模块`。
+- `npm -v` 触发 Node v24.13.1 原生断言：`Assertion failed: ncrypto::CSPRNG(nullptr, 0)`。
+- 这属于本地工具链/随机数源问题，不应直接判定为业务代码失败。
+
+### 12.6 接手必测路径
+
+1. 启动后端后检查 `DataRepairRunner` 日志，应显示演示账号检查完成。
+2. 登录 `enterprise_admin / admin123`，确认能看到渠道管理、告警规则、团队创建入口。
+3. 登录 `team_admin / team123456`，确认看不到渠道管理，能在默认团队管理成员、发 Key、管理本团队项目。
+4. 登录 `demo_user / user123456`，确认菜单为“领取密钥 / 我的团队 / 项目查看 / 告警通知”，团队和项目只读，领取密钥页能看到 `普通用户演示Key`。
+5. 分别访问 `/channels`：企业管理员允许，团队管理员和普通用户应被重定向到 `/`。
+6. 用企业管理员创建告警后，验证团队管理员和普通用户只能看到自己范围内的告警通知。
+
+### 12.7 详细交接文档
+
+本轮完整交接记录：
+
+`.trae/progress/PROGRESS-RBAC-USER-LOW-COMPLETION-20260423.md`
+
+该文档包含：
+
+- 本轮背景和用户决策
+- 已完成内容
+- 全量涉及文件
+- 验证状态和环境阻塞
+- 三角色后续测试步骤
+- 可复用开发模板

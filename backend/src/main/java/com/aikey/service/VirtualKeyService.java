@@ -1,5 +1,6 @@
 package com.aikey.service;
 
+import com.aikey.dto.auth.UserInfoResponse;
 import com.aikey.dto.common.PageResult;
 import com.aikey.dto.virtualkey.VirtualKeyCreateRequest;
 import com.aikey.dto.virtualkey.VirtualKeyUpdateRequest;
@@ -24,6 +25,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -60,6 +63,8 @@ public class VirtualKeyService {
     private final ModelGroupService modelGroupService;
 
     private final ObjectMapper objectMapper;
+
+    private final AuthService authService;
 
     /**
      * 生成虚拟Key
@@ -133,6 +138,7 @@ public class VirtualKeyService {
         if (virtualKey.getDeleted() == 1) {
             throw new BusinessException("虚拟Key不存在");
         }
+        validateReadAccess(virtualKey, getCurrentUser());
 
         return convertToVO(virtualKey);
     }
@@ -153,6 +159,11 @@ public class VirtualKeyService {
         log.debug("查询虚拟Key列表: page={}, size={}, userId={}, status={}, keyword={}",
                 page, size, userId, status, keyword);
 
+        User currentUser = getCurrentUser();
+        boolean superAdmin = isSuperAdmin(currentUser);
+        boolean teamOwner = isTeamOwner(currentUser);
+        List<Long> ownedTeamIds = teamOwner ? getOwnedTeamIds(currentUser) : Collections.emptyList();
+
         // 构建动态查询条件
         Specification<VirtualKey> spec = (root, query, cb) -> {
             var predicates = cb.conjunction();
@@ -163,6 +174,16 @@ public class VirtualKeyService {
             // 用户ID精确匹配
             if (userId != null) {
                 predicates = cb.and(predicates, cb.equal(root.get("user").get("id"), userId));
+            }
+
+            if (!superAdmin && teamOwner) {
+                if (ownedTeamIds.isEmpty()) {
+                    predicates = cb.and(predicates, cb.disjunction());
+                } else {
+                    predicates = cb.and(predicates, root.get("teamId").in(ownedTeamIds));
+                }
+            } else if (!superAdmin) {
+                predicates = cb.and(predicates, cb.equal(root.get("user").get("id"), currentUser.getId()));
             }
 
             // 状态精确匹配
@@ -215,6 +236,7 @@ public class VirtualKeyService {
         if (virtualKey.getDeleted() == 1) {
             throw new BusinessException("虚拟Key不存在");
         }
+        validateManageAccess(virtualKey, getCurrentUser());
 
         try {
             if (request.getTeamId() != null && !request.getTeamId().equals(virtualKey.getTeamId())) {
@@ -293,6 +315,7 @@ public class VirtualKeyService {
         if (virtualKey.getDeleted() == 1) {
             throw new BusinessException("虚拟Key不存在");
         }
+        validateManageAccess(virtualKey, getCurrentUser());
 
         // 切换状态：1->0 或 0->1
         int newStatus = virtualKey.getStatus() == 1 ? 0 : 1;
@@ -321,6 +344,7 @@ public class VirtualKeyService {
         if (virtualKey.getDeleted() == 1) {
             throw new BusinessException("虚拟Key不存在");
         }
+        validateManageAccess(virtualKey, getCurrentUser());
 
         // 生成新的唯一Key值
         String newKeyValue = generateUniqueKeyValue();
@@ -348,6 +372,7 @@ public class VirtualKeyService {
         if (virtualKey.getDeleted() == 1) {
             throw new BusinessException("虚拟Key不存在");
         }
+        validateManageAccess(virtualKey, getCurrentUser());
 
         virtualKey.setDeleted(1);
         virtualKey.setUpdatedAt(LocalDateTime.now());
@@ -453,6 +478,62 @@ public class VirtualKeyService {
         if (!teamMemberRepository.existsByTeamIdAndUserId(teamId, userId)) {
             throw new BusinessException("所选用户不属于当前团队");
         }
+    }
+
+    private void validateReadAccess(VirtualKey virtualKey, User currentUser) {
+        if (isSuperAdmin(currentUser)) {
+            return;
+        }
+        if (isTeamOwner(currentUser) && getOwnedTeamIds(currentUser).contains(virtualKey.getTeamId())) {
+            return;
+        }
+        User owner = virtualKey.getUser();
+        if (owner != null && owner.getId().equals(currentUser.getId())) {
+            return;
+        }
+        throw new BusinessException(403, "无权查看该虚拟Key");
+    }
+
+    private void validateManageAccess(VirtualKey virtualKey, User currentUser) {
+        if (isSuperAdmin(currentUser)) {
+            return;
+        }
+        if (isTeamOwner(currentUser) && getOwnedTeamIds(currentUser).contains(virtualKey.getTeamId())) {
+            return;
+        }
+        throw new BusinessException(403, "普通用户只能领取和查看自己的虚拟Key，不能修改");
+    }
+
+    private User getCurrentUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !StringUtils.hasText(authentication.getName())) {
+            throw new BusinessException(401, "未获取到当前登录用户");
+        }
+        return userRepository.findWithRolesByUsername(authentication.getName())
+                .orElseThrow(() -> new BusinessException(401, "当前登录用户不存在"));
+    }
+
+    private boolean isSuperAdmin(User user) {
+        if (user == null || !StringUtils.hasText(user.getUsername())) {
+            return false;
+        }
+        UserInfoResponse userInfo = authService.getUserInfo(user.getUsername());
+        return Boolean.TRUE.equals(userInfo.getIsSuperAdmin());
+    }
+
+    private boolean isTeamOwner(User user) {
+        return user != null && user.getId() != null && teamService.isTeamOwner(user.getId());
+    }
+
+    private List<Long> getOwnedTeamIds(User user) {
+        if (user == null || user.getId() == null) {
+            return Collections.emptyList();
+        }
+        return teamMemberRepository.findByUserIdOrderByJoinedAtAsc(user.getId()).stream()
+                .filter(member -> "owner".equals(member.getRole()))
+                .map(member -> member.getTeam().getId())
+                .distinct()
+                .toList();
     }
 
     private void validateChannel(List<Long> allowedGroupIds, Long channelId) {

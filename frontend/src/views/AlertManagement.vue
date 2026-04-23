@@ -3,7 +3,7 @@
     <el-tabs v-model="activeTab" class="main-tabs">
 
       <!-- 告警规则 Tab -->
-      <el-tab-pane label="告警规则" name="rules">
+      <el-tab-pane v-if="isSuperAdmin" label="告警规则" name="rules">
         <div class="filter-card glass-card">
           <div class="filter-header">
             <span class="filter-title">告警规则列表</span>
@@ -57,7 +57,10 @@
       </el-tab-pane>
 
       <!-- 告警历史 Tab -->
-      <el-tab-pane label="告警历史" name="histories">
+      <el-tab-pane :label="isSuperAdmin ? '告警历史' : '告警通知'" name="histories">
+        <div v-if="!isSuperAdmin" class="filter-card glass-card notice-scope">
+          当前账号只接收自己所属团队相关的告警通知，不能设置告警规则。
+        </div>
         <div class="table-card glass-card">
           <el-table :data="histories" v-loading="historiesLoading" stripe>
             <el-table-column label="时间" width="170">
@@ -98,6 +101,7 @@
 
     <!-- 新建/编辑对话框 -->
     <el-dialog
+      v-if="isSuperAdmin"
       v-model="dialogVisible"
       :title="isEdit ? '编辑告警规则' : '新建告警规则'"
       width="600px"
@@ -152,7 +156,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -161,7 +165,17 @@ import {
   triggerCheckNow
 } from '@/api/alert'
 
-const activeTab = ref('rules')
+function readStoredUserInfo() {
+  try {
+    return JSON.parse(localStorage.getItem('userInfo') || 'null')
+  } catch {
+    return null
+  }
+}
+
+const currentUser = ref(readStoredUserInfo())
+const isSuperAdmin = computed(() => Boolean(currentUser.value?.isSuperAdmin || currentUser.value?.roles?.includes('SUPER_ADMIN')))
+const activeTab = ref(isSuperAdmin.value ? 'rules' : 'histories')
 
 // --- 规则列表 ---
 const rules = ref([])
@@ -171,6 +185,7 @@ const rulesSize = ref(20)
 const rulesTotal = ref(0)
 
 async function fetchRules() {
+  if (!isSuperAdmin.value) return
   rulesLoading.value = true
   try {
     const res = await getAlertRules({ page: rulesPage.value, size: rulesSize.value })
@@ -242,6 +257,7 @@ function resetForm() {
 }
 
 function openCreateDialog() {
+  if (!isSuperAdmin.value) return
   isEdit.value = false
   editId.value = null
   resetForm()
@@ -249,6 +265,7 @@ function openCreateDialog() {
 }
 
 function openEditDialog(row) {
+  if (!isSuperAdmin.value) return
   isEdit.value = true
   editId.value = row.id
   form.value = {
@@ -280,6 +297,10 @@ function handleRuleTypeChange(type) {
 }
 
 async function handleCheckNow() {
+  if (!isSuperAdmin.value) {
+    ElMessage.warning('仅企业管理员可手动触发告警检测')
+    return
+  }
   checking.value = true
   try {
     const res = await triggerCheckNow()
@@ -294,6 +315,7 @@ async function handleCheckNow() {
 }
 
 async function handleSubmit() {
+  if (!isSuperAdmin.value) return
   await formRef.value.validate()
   submitting.value = true
   try {
@@ -313,12 +335,14 @@ async function handleSubmit() {
 }
 
 async function handleToggle(row) {
+  if (!isSuperAdmin.value) return
   await toggleAlertRule(row.id)
   ElMessage.success(row.isEnabled === 1 ? '已禁用' : '已启用')
   fetchRules()
 }
 
 async function handleDelete(row) {
+  if (!isSuperAdmin.value) return
   await ElMessageBox.confirm(`确定删除规则「${row.ruleName}」？`, '确认', { type: 'warning' })
   await deleteAlertRule(row.id)
   ElMessage.success('已删除')
@@ -326,7 +350,11 @@ async function handleDelete(row) {
 }
 
 onMounted(() => {
-  fetchRules()
+  currentUser.value = readStoredUserInfo()
+  if (!isSuperAdmin.value && activeTab.value === 'rules') {
+    activeTab.value = 'histories'
+  }
+  if (isSuperAdmin.value) fetchRules()
   fetchHistories()
 })
 </script>
@@ -357,5 +385,11 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+.notice-scope {
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  color: rgba(248, 250, 252, 0.72);
+  font-size: 13px;
 }
 </style>

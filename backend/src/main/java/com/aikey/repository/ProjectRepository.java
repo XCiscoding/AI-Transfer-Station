@@ -14,4 +14,6 @@ public interface ProjectRepository extends JpaRepository<Project, Long>, JpaSpec
     Optional<Project> findByIdAndDeleted(Long id, Integer deleted);
 
     List<Project> findByTeamIdAndDeleted(Long teamId, Integer deleted);
+
+    List<Project> findByTeamIdInAndDeleted(List<Long> teamIds, Integer deleted);
 }

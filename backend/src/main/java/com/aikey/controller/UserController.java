@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import lombok.Builder;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,6 +32,7 @@ public class UserController {
 
     @GetMapping
     @Operation(summary = "用户列表")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<List<UserSimpleVO>> list(@RequestParam(required = false) String keyword) {
         List<UserSimpleVO> users = userRepository.findByStatusAndDeleted(1, 0).stream()
                 .filter(user -> keyword == null || keyword.isBlank() || user.getUsername().contains(keyword))
@@ -44,6 +46,7 @@ public class UserController {
 
     @PostMapping
     @Operation(summary = "创建用户")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
     public Result<UserCreateResponse> create(@Valid @RequestBody UserCreateRequest request) {
         return Result.success(userService.createUser(request));
     }
