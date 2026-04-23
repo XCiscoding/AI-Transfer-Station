@@ -52,7 +52,7 @@ request.interceptors.response.use(
           window.location.href = '/login'
           break
         case 403:
-          ElMessage.error('权限不足')
+          ElMessage.error(error.response.data?.message || '权限不足')
           break
         case 404:
           ElMessage.error('请求的资源不存在')

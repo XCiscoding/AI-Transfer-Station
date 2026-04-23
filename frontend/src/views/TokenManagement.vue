@@ -473,6 +473,7 @@ import {
 import { getModelGroupAll, getModelGroupChannels } from '@/api/modelgroup'
 import { getProjectList } from '@/api/project'
 import { getTeamMembers } from '@/api/team'
+import { getUserInfo } from '@/api/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -536,6 +537,23 @@ async function fetchModelGroups() {
   } catch (e) {
     modelGroupOptions.value = []
     console.warn('获取模型分组失败:', e)
+  }
+}
+
+async function fetchCurrentUser() {
+  try {
+    const res = await getUserInfo()
+    const user = res.code === 200 ? res.data : null
+    currentUser.value = user
+    if (user) {
+      localStorage.setItem('roles', JSON.stringify(user.roles || []))
+      localStorage.setItem('username', user.username || '')
+      localStorage.setItem('userInfo', JSON.stringify(user))
+      window.dispatchEvent(new Event('storage'))
+    }
+  } catch (error) {
+    currentUser.value = readStoredUserInfo()
+    console.error('刷新当前用户信息失败:', error?.response?.data || error)
   }
 }
 
@@ -735,7 +753,7 @@ const virtualFormRules = {
 let virtualSearchTimer = null
 
 onMounted(async () => {
-  currentUser.value = readStoredUserInfo()
+  await fetchCurrentUser()
   syncTeamContextFromRoute()
   fetchVirtualKeyList()
   if (canManageKeys.value) {

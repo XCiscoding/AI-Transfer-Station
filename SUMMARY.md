@@ -1778,3 +1778,38 @@ WHERE created_at >= CURDATE()
 - 验证状态和环境阻塞
 - 三角色后续测试步骤
 - 可复用开发模板
+
+### 12.8 企业管理员界面回归修复（2026-04-23）
+
+本轮针对用户反馈的企业管理员界面三个回归问题完成代码修复：
+
+1. 企业管理员令牌管理 / 项目管理显示空数据。
+2. 企业管理员进入团队管理弹“服务器内部错误”。
+3. 企业管理员进入告警管理仍弹“权限不足”。
+
+核心修复：
+
+- `UserDetailsServiceImpl` 改为 `findWithRolesByUsername()`，确保 Spring Security `SecurityContext` 稳定包含真实 `ROLE_SUPER_ADMIN`。
+- `GlobalExceptionHandler` 新增 `AccessDeniedException` 处理，方法级权限拒绝统一返回 403，不再误包装成 500。
+- `DataRepairRunner` 补强默认数据自愈：
+  - 默认团队可用模型分组会按启用分组重建。
+  - 默认项目缺失时会创建或修复 `default-project`。
+  - 演示 Key 已存在时也会修复 user/team/project/group/channel/status/deleted。
+- `TokenManagement.vue` 和 `AlertManagement.vue` 进入页面时先刷新 `/auth/me`，避免多账号切换后继续使用陈旧 `localStorage.userInfo`。
+- `AlertManagement.vue` 只有确认企业管理员身份后才请求告警规则列表，非企业管理员只请求告警历史通知。
+
+验证状态：
+
+- `git diff --check` 通过。
+- 静态检索确认关键修复入口均已落地。
+- 后端 Maven 编译通过：`cmd /c mvn -DskipTests compile` 成功。
+- 后端 Maven 测试命令通过：`cmd /c mvn test` 成功（当前无测试源码）。
+- PowerShell 直接执行 Maven 仍失败：`mvn.cmd` 报 `找不到指定的模块`，后续在本机优先用 `cmd /c mvn ...`。
+- 前端构建未能执行：`npm run build`、直接 `node node_modules\vite\bin\vite.js build` 都触发 `ncrypto::CSPRNG(nullptr, 0)` 断言。
+- localhost API 复测未能执行：`Invoke-RestMethod` / `curl.exe` 均报 socket 初始化失败。
+
+新增交接与报错文档：
+
+- `.trae/planning/PLAN-ENTERPRISE-ADMIN-RBAC-FIX-20260423.md`
+- `.trae/runtime/bugs/error-log-enterprise-admin-20260423.md`
+- `.trae/progress/PROGRESS-ENTERPRISE-ADMIN-RBAC-FIX-20260423.md`

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 <#
 .SYNOPSIS
@@ -16,6 +16,11 @@
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $Host.UI.RawUI.WindowTitle = "AI调度Center - Local-first Startup v3.1"
+$env:JAVA_TOOL_OPTIONS = (($env:JAVA_TOOL_OPTIONS -split '\s+') + '-Dfile.encoding=UTF-8' | Where-Object { $_ } | Select-Object -Unique) -join ' '
+if ([string]::IsNullOrWhiteSpace($env:ComSpec)) {
+    $defaultComSpec = if ($env:SystemRoot) { Join-Path $env:SystemRoot "System32\cmd.exe" } else { "C:\Windows\System32\cmd.exe" }
+    $env:ComSpec = $defaultComSpec
+}
 
 $Green = "Green"
 $Red = "Red"
@@ -39,18 +44,161 @@ function Write-SubStep {
     }
 }
 
+function Show-LogTail {
+    param(
+        [string]$Path,
+        [string]$Label,
+        [int]$Lines = 30
+    )
+
+    if (Test-Path $Path) {
+        Write-Host "  $Label log tail:" -ForegroundColor $Yellow
+        Get-Content -Tail $Lines $Path | ForEach-Object {
+            Write-Host "    $_" -ForegroundColor $DarkGray
+        }
+    }
+}
+
 function Test-Command {
     param([string]$Command)
     return [bool](Get-Command -Name $Command -ErrorAction SilentlyContinue)
 }
 
-function Test-Port {
-    param([int]$Port)
+function Quote-CmdArgument {
+    param([string]$Value)
+    if ($Value -match '[\s"&|<>^]') {
+        return '"' + ($Value -replace '"', '\"') + '"'
+    }
+    return $Value
+}
+
+function Resolve-MavenCommand {
+    $cmd = Get-Command -Name "mvn.cmd" -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        $cmd = Get-Command -Name "mvn" -ErrorAction SilentlyContinue
+    }
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
+function Invoke-Maven {
+    param(
+        [string[]]$Arguments,
+        [string]$WorkingDirectory = (Get-Location).Path
+    )
+
+    if (-not $script:MavenCmd) { return $false }
+
+    Push-Location $WorkingDirectory
     try {
-        $conn = Test-NetConnection -ComputerName localhost -Port $Port -WarningAction SilentlyContinue -ErrorAction Stop
-        return $conn.TcpTestSucceeded
+        $cmdLine = (Quote-CmdArgument $script:MavenCmd) + " " + (($Arguments | ForEach-Object { Quote-CmdArgument $_ }) -join " ")
+        & cmd.exe /d /s /c $cmdLine
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        Pop-Location
+    }
+}
+
+function Start-Maven {
+    param(
+        [string[]]$Arguments,
+        [string]$WorkingDirectory
+    )
+
+    $cmdLine = (Quote-CmdArgument $script:MavenCmd) + " " + (($Arguments | ForEach-Object { Quote-CmdArgument $_ }) -join " ")
+    return Start-Process -FilePath "cmd.exe" -ArgumentList @("/d", "/s", "/c", $cmdLine) -PassThru -NoNewWindow -WorkingDirectory $WorkingDirectory
+}
+
+function Test-NodeExecutable {
+    param([string]$NodeExe)
+    if (-not (Test-Path $NodeExe)) { return $false }
+    try {
+        $output = & $NodeExe -e "require('crypto').randomBytes(1); console.log(process.version)" 2>&1
+        return ($LASTEXITCODE -eq 0 -and ($output -join "`n") -match '^v\d+\.')
     } catch {
         return $false
+    }
+}
+
+function Resolve-NodeRuntime {
+    $candidates = @()
+
+    $stepfunRoot = Join-Path $env:USERPROFILE ".stepfun\runtimes\node"
+    if (Test-Path $stepfunRoot) {
+        $candidates += Get-ChildItem -Path $stepfunRoot -Recurse -Filter "node.exe" -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -ExpandProperty FullName
+    }
+
+    $nodeCmd = Get-Command -Name "node" -ErrorAction SilentlyContinue
+    if ($nodeCmd) { $candidates += $nodeCmd.Source }
+
+    foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+        if (Test-NodeExecutable $candidate) {
+            $nodeDir = Split-Path -Parent $candidate
+            $npmCli = Join-Path $nodeDir "node_modules\npm\bin\npm-cli.js"
+            if (Test-Path $npmCli) {
+                return @{
+                    NodeExe = $candidate
+                    NpmCli = $npmCli
+                    Version = ((& $candidate -v 2>$null) -replace 'v', '')
+                }
+            }
+        }
+    }
+
+    return $null
+}
+
+function Invoke-Npm {
+    param(
+        [string[]]$Arguments,
+        [string]$WorkingDirectory
+    )
+
+    if (-not $script:NodeRuntime) { return $false }
+    Push-Location $WorkingDirectory
+    try {
+        & $script:NodeRuntime.NodeExe $script:NodeRuntime.NpmCli @Arguments
+        return ($LASTEXITCODE -eq 0)
+    } finally {
+        Pop-Location
+    }
+}
+
+function Use-NodeRuntimePath {
+    param([string]$NodeExe)
+
+    $nodeDir = Split-Path -Parent $NodeExe
+    $normalizedNodeDir = $nodeDir.TrimEnd('\')
+    $pathEntries = @($env:Path -split ';' | Where-Object { $_ })
+    $alreadyPresent = $pathEntries | Where-Object { $_.TrimEnd('\') -ieq $normalizedNodeDir } | Select-Object -First 1
+
+    if (-not $alreadyPresent) {
+        $env:Path = "$nodeDir;$env:Path"
+    }
+}
+
+function Test-PortListening {
+    param([int]$Port)
+
+    $pattern = "^\s*TCP\s+\S+:$Port\s+\S+\s+LISTENING"
+    return [bool](netstat -ano -p TCP 2>$null | Select-String -Pattern $pattern)
+}
+
+function Test-Port {
+    param([int]$Port)
+    $client = $null
+    try {
+        $client = [System.Net.Sockets.TcpClient]::new()
+        $async = $client.BeginConnect("127.0.0.1", $Port, $null, $null)
+        if (-not $async.AsyncWaitHandle.WaitOne(500)) { return $false }
+        $client.EndConnect($async)
+        return $client.Connected
+    } catch {
+        return Test-PortListening -Port $Port
+    } finally {
+        if ($client) { $client.Close() }
     }
 }
 
@@ -78,6 +226,18 @@ function Test-DockerReady {
         $null = & docker info --format '{{.OSType}}' 2>&1 | Out-Null
         return ($LASTEXITCODE -eq 0)
     } catch { return $false }
+}
+
+function Invoke-DockerCompose {
+    param([string[]]$Arguments)
+
+    if (Test-Command "docker-compose") {
+        & docker-compose @Arguments
+        return ($LASTEXITCODE -eq 0)
+    }
+
+    & docker compose @Arguments
+    return ($LASTEXITCODE -eq 0)
 }
 
 function Start-DockerContainer {
@@ -129,7 +289,7 @@ function Start-DockerContainer {
     }
 
     Write-SubStep -Message "Creating new container '$Name' from $Image..."
-    & @dockerArgs 2>&1 | Out-Null
+    & docker @dockerArgs 2>&1 | Out-Null
 
     if ($LASTEXITCODE -eq 0) {
         if ($ReadyPort -gt 0) {
@@ -192,7 +352,7 @@ function Get-DatabaseTableCount {
 
 function Test-BackendHealth {
     param([int]$Port, [int]$MaxWait = 90)
-    $healthUrl = "http://localhost:$Port/actuator/health"
+    $healthUrl = "http://127.0.0.1:$Port/api/health"
     Write-Host "    Waiting for backend health..." -NoNewline -ForegroundColor $DarkGray
     for ($i = 0; $i -lt $MaxWait; $i++) {
         Start-Sleep -Seconds 1
@@ -225,8 +385,7 @@ function Install-NodeDependencies {
 
         if ($packageJsonTime -gt $nodeModulesTime) {
             Write-SubStep -Message "package.json is newer, updating dependencies..."
-            & npm install 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) {
+            if (Invoke-Npm -Arguments @("install") -WorkingDirectory $FrontendDir) {
                 Write-SubStep -Message "Dependencies updated" -Status "OK"
             } else {
                 Write-SubStep -Message "Update failed, using existing" -Status "WARN"
@@ -238,8 +397,7 @@ function Install-NodeDependencies {
         Write-SubStep -Message "Installing frontend dependencies (first time)..."
         Set-Location $FrontendDir
         Write-Host "    This may take a few minutes on first run..." -ForegroundColor $DarkGray
-        & npm install 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
+        if (Invoke-Npm -Arguments @("install") -WorkingDirectory $FrontendDir) {
             Write-SubStep -Message "Dependencies installed" -Status "OK"
         } else {
             Write-SubStep -Message "npm install failed" -Status "FAIL"
@@ -268,6 +426,8 @@ $useDockerForRedis = $false
 $useDockerForBackend = $false
 $frontendProcess = $null
 $backendProcess = $null
+$viteStdoutLog = Join-Path $env:TEMP "vite-stdout.log"
+$viteStderrLog = Join-Path $env:TEMP "vite-stderr.log"
 $reuseBackend = $false
 $reuseFrontend = $false
 $PortConflictAction = $env:AIKEY_PORT_CONFLICT_ACTION
@@ -285,22 +445,31 @@ $currentStep = 0
 Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Detecting environment..."
 
 $envReport = @{}
+$script:NodeRuntime = Resolve-NodeRuntime
+if ($script:NodeRuntime) {
+    Use-NodeRuntimePath -NodeExe $script:NodeRuntime.NodeExe
+}
+$script:MavenCmd = Resolve-MavenCommand
 
 Write-Host "`n  Checking Node.js/npm..." -NoNewline
-if (Test-Command "node") {
-    $nodeVersion = (& node -v 2>&1) -replace 'v', ''
+if ($script:NodeRuntime) {
+    $nodeVersion = $script:NodeRuntime.Version
     $envReport["NodeJS"] = "v$nodeVersion"
     Write-Host " [OK] v$nodeVersion" -ForegroundColor $Green
 } else {
-    $envReport["NodeJS"] = "NOT FOUND"
+    $envReport["NodeJS"] = "NOT USABLE"
     Write-Host " [MISSING]" -ForegroundColor $Red
 }
 
-if (Test-Command "npm") {
-    $npmVersion = (& npm -v 2>&1)
-    $envReport["NPM"] = "v$npmVersion"
+if ($script:NodeRuntime) {
+    $npmVersion = (& $script:NodeRuntime.NodeExe $script:NodeRuntime.NpmCli -v 2>&1)
+    if ($LASTEXITCODE -eq 0) {
+        $envReport["NPM"] = "v$npmVersion"
+    } else {
+        $envReport["NPM"] = "NOT USABLE"
+    }
 } else {
-    $envReport["NPM"] = "NOT FOUND"
+    $envReport["NPM"] = "NOT USABLE"
 }
 
 Write-Host "  Checking Java..." -NoNewline
@@ -314,8 +483,9 @@ if (Test-Command "java") {
 }
 
 Write-Host "  Checking Maven..." -NoNewline
-if (Test-Command "mvn") {
-    $mavenVersion = (& mvn -v 2>&1 | Select-String -Pattern 'Apache Maven ([\d\.]+)' | ForEach-Object { $_.Matches.Groups[1].Value })
+if ($script:MavenCmd) {
+    $mavenVersionOutput = & cmd.exe /d /s /c ((Quote-CmdArgument $script:MavenCmd) + " -v") 2>&1
+    $mavenVersion = ($mavenVersionOutput | Select-String -Pattern 'Apache Maven ([\d\.]+)' | ForEach-Object { $_.Matches.Groups[1].Value })
     $envReport["Maven"] = "v$mavenVersion"
     Write-Host " [OK] v$mavenVersion" -ForegroundColor $Green
 } else {
@@ -336,12 +506,12 @@ if ($dockerAvailable) {
 Write-Host ""
 Write-Host "  Environment Summary:" -ForegroundColor $Cyan
 foreach ($item in $envReport.GetEnumerator()) {
-    $statusColor = if ($item.Value -match "(NOT FOUND|NOT AVAILABLE)") { $Red } elseif ($item.Value -match "v\d") { $Green } else { $Yellow }
+    $statusColor = if ($item.Value -match "(NOT FOUND|NOT AVAILABLE|NOT USABLE)") { $Red } elseif ($item.Value -match "v\d") { $Green } else { $Yellow }
     Write-Host "    $($item.Key.PadRight(12)): $($item.Value)" -ForegroundColor $statusColor
 }
 
-$hasJavaMaven = ((Test-Command "java") -and (Test-Command "mvn"))
-$hasNodeJs = (Test-Command "node") -and (Test-Command "npm")
+$hasJavaMaven = ((Test-Command "java") -and [bool]$script:MavenCmd)
+$hasNodeJs = [bool]$script:NodeRuntime
 $canRunLocalBackend = $hasJavaMaven
 $canRunFrontend = $hasNodeJs
 $canUseDocker = $dockerAvailable
@@ -554,18 +724,14 @@ if ($reuseBackend) {
     }
 
     Write-Host "    Building images (this may take several minutes on first run)..." -ForegroundColor $DarkGray
-    & docker compose build backend 2>&1 | Out-Null
-
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-DockerCompose -Arguments @("build", "backend"))) {
         Write-SubStep -Message "Docker build failed" -Status "FAIL"
         Read-Host "Press Enter to exit"
         exit 1
     }
 
     Write-SubStep -Message "Starting backend container..."
-    & docker compose up -d backend 2>&1 | Out-Null
-
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-DockerCompose -Arguments @("up", "-d", "backend"))) {
         Write-SubStep -Message "Failed to start backend container" -Status "FAIL"
         Read-Host "Press Enter to exit"
         exit 1
@@ -590,9 +756,7 @@ if ($reuseBackend) {
     Set-Location $BackendDir
 
     Write-SubStep -Message "Compiling with Maven..."
-    & mvn clean compile -q 2>&1 | Out-Null
-
-    if ($LASTEXITCODE -ne 0) {
+    if (-not (Invoke-Maven -Arguments @("clean", "compile", "-q") -WorkingDirectory $BackendDir)) {
         Write-SubStep -Message "Compilation failed" -Status "FAIL"
         Read-Host "Press Enter to exit"
         exit 1
@@ -602,7 +766,7 @@ if ($reuseBackend) {
 
     Write-SubStep -Message "Starting Spring Boot application..."
     $backendArgs = @("spring-boot:run", "-Dspring-boot.run.jvmArguments=-Dserver.port=$BackendPort")
-    $backendProcess = Start-Process -FilePath "mvn" -ArgumentList $backendArgs -PassThru -NoNewWindow -WorkingDirectory $BackendDir
+    $backendProcess = Start-Maven -Arguments $backendArgs -WorkingDirectory $BackendDir
 
     Write-SubStep -Message "Waiting for backend to start..."
     $backendStarted = Wait-ForPort -Port $BackendPort -MaxWait 90
@@ -637,7 +801,8 @@ if ($reuseFrontend) {
     Write-SubStep -Message "Starting Vite dev server..."
     Set-Location $FrontendDir
 
-    $frontendProcess = Start-Process -FilePath "npm.cmd" -ArgumentList "run", "dev" -PassThru -NoNewWindow -WorkingDirectory $FrontendDir -RedirectStandardOutput "$env:TEMP\vite-stdout.log" -RedirectStandardError "$env:TEMP\vite-stderr.log"
+    $npmDevArgs = '"' + $script:NodeRuntime.NpmCli + '" run dev'
+    $frontendProcess = Start-Process -FilePath $script:NodeRuntime.NodeExe -ArgumentList $npmDevArgs -PassThru -NoNewWindow -WorkingDirectory $FrontendDir -RedirectStandardOutput $viteStdoutLog -RedirectStandardError $viteStderrLog
 
     Write-SubStep -Message "Waiting for frontend to start..."
     $frontendStarted = $false
@@ -655,9 +820,13 @@ if ($reuseFrontend) {
     Write-Host ""
 
     if ($frontendStarted) {
-        Write-SubStep -Message "Frontend started (http://localhost:$FrontendPort)" -Status "OK"
+        Write-SubStep -Message "Frontend started (http://127.0.0.1:$FrontendPort)" -Status "OK"
     } else {
-        Write-SubStep -Message "Frontend may still be starting (check http://localhost:$FrontendPort)" -Status "WARN"
+        Write-SubStep -Message "Frontend may still be starting (check http://127.0.0.1:$FrontendPort)" -Status "WARN"
+        if ($frontendProcess -and $frontendProcess.HasExited) {
+            Show-LogTail -Path $viteStderrLog -Label "Vite stderr"
+            Show-LogTail -Path $viteStdoutLog -Label "Vite stdout"
+        }
     }
 } else {
     Write-SubStep -Message "Node.js not available, skipping frontend" -Status "SKIP"
@@ -668,11 +837,11 @@ Write-Step -Step (++$currentStep) -Total $totalSteps -Message "Opening browser..
 Start-Sleep -Seconds 2
 
 if ($canRunFrontend) {
-    Start-Process "http://localhost:$FrontendPort"
-    $browserUrl = "http://localhost:$FrontendPort"
+    Start-Process "http://127.0.0.1:$FrontendPort"
+    $browserUrl = "http://127.0.0.1:$FrontendPort"
 } else {
-    Start-Process "http://localhost:$BackendPort/swagger-ui/index.html"
-    $browserUrl = "http://localhost:$BackendPort/swagger-ui/index.html"
+    Start-Process "http://127.0.0.1:$BackendPort/swagger-ui/index.html"
+    $browserUrl = "http://127.0.0.1:$BackendPort/swagger-ui/index.html"
 }
 
 Write-SubStep -Message "Browser opened: $browserUrl" -Status "OK"
@@ -687,11 +856,11 @@ Write-Host ""
 Write-Host "  Access Information:" -ForegroundColor $Cyan
 Write-Host "  -------------------" -ForegroundColor $Cyan
 if ($canRunFrontend) {
-    Write-Host "  Frontend (Main UI):  http://localhost:$FrontendPort" -ForegroundColor $Green
+    Write-Host "  Frontend (Main UI):  http://127.0.0.1:$FrontendPort" -ForegroundColor $Green
 }
-Write-Host "  Backend API:         http://localhost:$BackendPort" -ForegroundColor $Green
-Write-Host "  Swagger Docs:         http://localhost:$BackendPort/swagger-ui/index.html" -ForegroundColor $Cyan
-Write-Host "  Health Check:         http://localhost:$BackendPort/api/health" -ForegroundColor $Cyan
+Write-Host "  Backend API:         http://127.0.0.1:$BackendPort" -ForegroundColor $Green
+Write-Host "  Swagger Docs:         http://127.0.0.1:$BackendPort/swagger-ui/index.html" -ForegroundColor $Cyan
+Write-Host "  Health Check:         http://127.0.0.1:$BackendPort/api/health" -ForegroundColor $Cyan
 Write-Host ""
 Write-Host "  Default Account:" -ForegroundColor $Cyan
 Write-Host "  Username: admin      Password: admin123" -ForegroundColor $Yellow
@@ -737,6 +906,8 @@ try {
 
         if ($canRunFrontend -and -not $frontendAlive) {
             Write-Host "`n[WARN] Frontend service stopped unexpectedly!" -ForegroundColor $Red
+            Show-LogTail -Path $viteStderrLog -Label "Vite stderr"
+            Show-LogTail -Path $viteStdoutLog -Label "Vite stdout"
             break
         }
     }
@@ -758,7 +929,7 @@ if ($backendProcess -and -not $backendProcess.HasExited) {
 
 if ($useDockerForBackend) {
     Set-Location $ProjectRoot
-    & docker compose down 2>$null | Out-Null
+    Invoke-DockerCompose -Arguments @("down") 2>$null | Out-Null
     Write-Host "  Docker containers stopped" -ForegroundColor $DarkGray
 }
 

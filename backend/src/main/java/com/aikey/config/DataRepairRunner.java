@@ -127,23 +127,14 @@ public class DataRepairRunner implements CommandLineRunner {
                 log.info("找到用户 {}，ID: {}", username, userId);
             }
 
-            int count;
+            int roleCount;
             try (PreparedStatement ps = conn.prepareStatement(
                     "SELECT COUNT(*) FROM user_roles WHERE user_id = ?")) {
                 ps.setLong(1, userId);
                 ResultSet rs = ps.executeQuery();
                 rs.next();
-                count = rs.getInt(1);
+                roleCount = rs.getInt(1);
             }
-
-            log.info("用户 {} (userId={}) 当前角色关联数量: {}", username, userId, count);
-
-            if (count > 0) {
-                log.info("✅ 用户 {} (userId={}) 已有{}个角色关联，无需修复", username, userId, count);
-                return;
-            }
-
-            log.warn("⚠️ 用户 {} (userId={}) 没有角色关联，开始自动修复...", username, userId);
 
             long roleId;
             try (PreparedStatement ps = conn.prepareStatement(
@@ -158,8 +149,29 @@ public class DataRepairRunner implements CommandLineRunner {
                 log.info("找到{}角色，ID: {}", BOOTSTRAP_SUPER_ADMIN_ROLE, roleId);
             }
 
+            int superAdminRoleCount;
             try (PreparedStatement ps = conn.prepareStatement(
-                    "INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)")) {
+                    "SELECT COUNT(*) FROM user_roles WHERE user_id = ? AND role_id = ?")) {
+                ps.setLong(1, userId);
+                ps.setLong(2, roleId);
+                ResultSet rs = ps.executeQuery();
+                rs.next();
+                superAdminRoleCount = rs.getInt(1);
+            }
+
+            log.info("用户 {} (userId={}) 当前角色关联数量: {}, SUPER_ADMIN关联数量: {}",
+                    username, userId, roleCount, superAdminRoleCount);
+
+            if (superAdminRoleCount > 0) {
+                log.info("✅ 用户 {} (userId={}) 已有关联{}角色，无需修复", username, userId, BOOTSTRAP_SUPER_ADMIN_ROLE);
+                return;
+            }
+
+            log.warn("⚠️ 用户 {} (userId={}) 缺少{}角色关联，开始自动修复...",
+                    username, userId, BOOTSTRAP_SUPER_ADMIN_ROLE);
+
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)")) {
                 ps.setLong(1, userId);
                 ps.setLong(2, roleId);
                 int rows = ps.executeUpdate();
@@ -190,11 +202,13 @@ public class DataRepairRunner implements CommandLineRunner {
                 Long defaultTeamId = queryLong(conn, "SELECT id FROM teams WHERE team_code = 'default-team' AND deleted = 0 LIMIT 1");
                 if (defaultTeamId != null) {
                     updateDefaultTeamOwner(conn, defaultTeamId, teamAdminId);
+                    ensureDefaultTeamAllowedGroups(conn, defaultTeamId);
                     ensureTeamMember(conn, defaultTeamId, teamAdminId, "owner");
                     ensureTeamMember(conn, defaultTeamId, demoUserId, "member");
                     normalizeTeamOwner(conn, defaultTeamId, teamAdminId);
                     updateDefaultProjectOwner(conn, defaultTeamId, teamAdminId);
-                    ensureDemoVirtualKey(conn, defaultTeamId, demoUserId);
+                    Long defaultProjectId = ensureDefaultProject(conn, defaultTeamId, teamAdminId);
+                    ensureDemoVirtualKey(conn, defaultTeamId, defaultProjectId, demoUserId);
                 } else {
                     log.warn("默认团队不存在，跳过演示账号团队绑定");
                 }
@@ -283,6 +297,21 @@ public class DataRepairRunner implements CommandLineRunner {
         }
     }
 
+    private void ensureDefaultTeamAllowedGroups(Connection conn, long teamId) throws Exception {
+        String groupIdsJson = queryEnabledModelGroupIdsJson(conn);
+        if (groupIdsJson == null) {
+            log.warn("没有可用模型分组，跳过默认团队模型分组修复");
+            return;
+        }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE teams SET allowed_group_ids = ?, updated_at = NOW() WHERE id = ? AND deleted = 0")) {
+            ps.setString(1, groupIdsJson);
+            ps.setLong(2, teamId);
+            ps.executeUpdate();
+            log.info("默认团队可用模型分组已修复: teamId={}, allowedGroupIds={}", teamId, groupIdsJson);
+        }
+    }
+
     private void ensureTeamMember(Connection conn, long teamId, long userId, String role) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT id FROM team_members WHERE team_id = ? AND user_id = ?")) {
@@ -333,6 +362,50 @@ public class DataRepairRunner implements CommandLineRunner {
         }
     }
 
+    private Long ensureDefaultProject(Connection conn, long teamId, long ownerId) throws Exception {
+        Long projectId = queryLong(conn, "SELECT id FROM projects WHERE team_id = " + teamId + " AND deleted = 0 ORDER BY id LIMIT 1");
+        if (projectId != null) {
+            log.info("默认团队已有项目: teamId={}, projectId={}", teamId, projectId);
+            return projectId;
+        }
+
+        Long existingDefaultProjectId = queryLong(conn, "SELECT id FROM projects WHERE project_code = 'default-project' LIMIT 1");
+        if (existingDefaultProjectId != null) {
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "UPDATE projects SET team_id = ?, owner_id = ?, status = 1, deleted = 0, updated_at = NOW() WHERE id = ?")) {
+                ps.setLong(1, teamId);
+                ps.setLong(2, ownerId);
+                ps.setLong(3, existingDefaultProjectId);
+                ps.executeUpdate();
+                log.info("已修复默认项目归属: projectId={}, teamId={}, ownerId={}", existingDefaultProjectId, teamId, ownerId);
+            }
+            return existingDefaultProjectId;
+        }
+
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO projects (project_name, project_code, description, team_id, owner_id, " +
+                        "quota_limit, quota_used, quota_remaining, quota_weight, status, deleted) " +
+                        "VALUES ('默认项目', 'default-project', '系统默认项目', ?, ?, " +
+                        "1000000.00, 0.00, 1000000.00, 1.00, 1, 0)",
+                Statement.RETURN_GENERATED_KEYS)) {
+            ps.setLong(1, teamId);
+            ps.setLong(2, ownerId);
+            ps.executeUpdate();
+            ResultSet keys = ps.getGeneratedKeys();
+            if (keys.next()) {
+                long insertedId = keys.getLong(1);
+                log.info("已创建默认项目: projectId={}, teamId={}, ownerId={}", insertedId, teamId, ownerId);
+                return insertedId;
+            }
+        }
+
+        Long insertedId = queryLong(conn, "SELECT id FROM projects WHERE project_code = 'default-project' LIMIT 1");
+        if (insertedId == null) {
+            throw new IllegalStateException("默认项目创建后无法查询");
+        }
+        return insertedId;
+    }
+
     private void ensureUserQuota(Connection conn, long userId) throws Exception {
         try (PreparedStatement ps = conn.prepareStatement(
                 "INSERT INTO quotas (user_id, quota_type, quota_limit, quota_used, quota_remaining, reset_cycle) " +
@@ -344,8 +417,7 @@ public class DataRepairRunner implements CommandLineRunner {
         }
     }
 
-    private void ensureDemoVirtualKey(Connection conn, long teamId, long demoUserId) throws Exception {
-        Long projectId = queryLong(conn, "SELECT id FROM projects WHERE team_id = " + teamId + " AND deleted = 0 ORDER BY id LIMIT 1");
+    private void ensureDemoVirtualKey(Connection conn, long teamId, Long projectId, long demoUserId) throws Exception {
         Long channelId = queryLong(conn, "SELECT id FROM channels WHERE channel_code = 'zhipu' AND deleted = 0 ORDER BY id LIMIT 1");
         Long groupId = queryLong(conn, "SELECT id FROM model_groups WHERE group_code = 'china-llm' AND deleted = 0 ORDER BY id LIMIT 1");
         if (projectId == null || channelId == null || groupId == null) {
@@ -365,6 +437,37 @@ public class DataRepairRunner implements CommandLineRunner {
             ps.setLong(5, channelId);
             ps.executeUpdate();
         }
+        try (PreparedStatement ps = conn.prepareStatement(
+                "UPDATE virtual_keys SET user_id = ?, team_id = ?, project_id = ?, allowed_group_ids = ?, channel_id = ?, " +
+                        "status = 1, deleted = 0, updated_at = NOW() WHERE key_value = 'sk-demo-user-low-completion-001'")) {
+            ps.setLong(1, demoUserId);
+            ps.setLong(2, teamId);
+            ps.setLong(3, projectId);
+            ps.setString(4, "[" + groupId + "]");
+            ps.setLong(5, channelId);
+            ps.executeUpdate();
+        }
+        log.info("演示虚拟Key已确认: teamId={}, projectId={}, userId={}, groupId={}, channelId={}",
+                teamId, projectId, demoUserId, groupId, channelId);
+    }
+
+    private String queryEnabledModelGroupIdsJson(Connection conn) throws Exception {
+        StringBuilder builder = new StringBuilder("[");
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT id FROM model_groups WHERE deleted = 0 AND status = 1 ORDER BY id")) {
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                if (builder.length() > 1) {
+                    builder.append(",");
+                }
+                builder.append(rs.getLong("id"));
+            }
+        }
+        if (builder.length() == 1) {
+            return null;
+        }
+        builder.append("]");
+        return builder.toString();
     }
 
     private Long queryLong(Connection conn, String sql) throws Exception {

@@ -17,7 +17,7 @@ public class HealthController {
      *
      * @return 健康状态信息
      */
-    @GetMapping("/actuator/health")
+    @GetMapping("/api/health")
     public String health() {
         return "{\"status\":\"UP\"}";
     }

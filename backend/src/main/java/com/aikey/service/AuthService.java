@@ -17,6 +17,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
@@ -46,6 +47,8 @@ public class AuthService {
     private final TeamRepository teamRepository;
 
     private final TeamMemberRepository teamMemberRepository;
+
+    private final TransactionTemplate transactionTemplate;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -98,8 +101,8 @@ public class AuthService {
 
             log.info("用户 {} 角色数量(原生SQL): {}", username, roleCodes.size());
 
-            if (roleCodes.isEmpty() && isBootstrapSuperAdmin(user.getUsername())) {
-                log.warn(">>> 引导超级管理员用户 {} 没有角色，尝试自动修复...", username);
+            if (!roleCodes.contains(SUPER_ADMIN_ROLE) && isBootstrapSuperAdmin(user.getUsername())) {
+                log.warn(">>> 引导超级管理员用户 {} 缺少{}角色，尝试自动修复...", username, SUPER_ADMIN_ROLE);
                 try {
                     autoRepairUserRoles(user);
                     roleCodes = queryRoleCodes(user.getId());
@@ -151,6 +154,15 @@ public class AuthService {
 
         // 直接用原生SQL查角色，避免JPA关联状态影响 /auth/me 返回
         List<String> roleCodes = queryRoleCodes(user.getId());
+        if (!roleCodes.contains(SUPER_ADMIN_ROLE) && isBootstrapSuperAdmin(user.getUsername())) {
+            log.warn("/auth/me 检测到引导超级管理员 {} 缺少{}角色，尝试自动修复", username, SUPER_ADMIN_ROLE);
+            try {
+                autoRepairUserRoles(user);
+                roleCodes = queryRoleCodes(user.getId());
+            } catch (Exception e) {
+                log.error("/auth/me 自动修复引导超级管理员角色失败", e);
+            }
+        }
 
         boolean isSuperAdmin = roleCodes.contains(SUPER_ADMIN_ROLE);
         boolean isTeamOwner = user.getId() != null && teamRepository.existsByOwnerIdAndDeleted(user.getId(), 0);
@@ -181,31 +193,33 @@ public class AuthService {
             return;
         }
 
-        log.info("开始为引导超级管理员用户 {} 自动修复角色关联...", user.getUsername());
+        log.info("开始为引导超级管理员用户 {} 自动修复{}角色关联...", user.getUsername(), SUPER_ADMIN_ROLE);
 
-        jakarta.persistence.Query selectRoleQuery = entityManager.createNativeQuery(
-                "SELECT id FROM roles WHERE role_code = '" + SUPER_ADMIN_ROLE + "'");
-        Object roleIdResult = selectRoleQuery.getSingleResult();
+        transactionTemplate.executeWithoutResult(status -> {
+            jakarta.persistence.Query selectRoleQuery = entityManager.createNativeQuery(
+                    "SELECT id FROM roles WHERE role_code = '" + SUPER_ADMIN_ROLE + "'");
+            Object roleIdResult = selectRoleQuery.getSingleResult();
 
-        if (roleIdResult == null) {
-            log.error("SUPER_ADMIN角色不存在！无法自动修复");
-            return;
-        }
+            if (roleIdResult == null) {
+                log.error("SUPER_ADMIN角色不存在！无法自动修复");
+                return;
+            }
 
-        long roleId = ((Number) roleIdResult).longValue();
-        log.info("找到SUPER_ADMIN角色，ID: {}", roleId);
+            long roleId = ((Number) roleIdResult).longValue();
+            log.info("找到SUPER_ADMIN角色，ID: {}", roleId);
 
-        jakarta.persistence.Query insertQuery = entityManager.createNativeQuery(
-                "INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)");
-        insertQuery.setParameter(1, user.getId());
-        insertQuery.setParameter(2, roleId);
-        int rows = insertQuery.executeUpdate();
+            jakarta.persistence.Query insertQuery = entityManager.createNativeQuery(
+                    "INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)");
+            insertQuery.setParameter(1, user.getId());
+            insertQuery.setParameter(2, roleId);
+            int rows = insertQuery.executeUpdate();
 
-        if (rows > 0) {
-            log.info("✅ 成功为用户 {} 关联SUPER_ADMIN角色 (userId={}, roleId={})", user.getUsername(), user.getId(), roleId);
-        } else {
-            log.info("用户 {} 已有角色关联或插入失败（影响行数=0）", user.getUsername());
-        }
+            if (rows > 0) {
+                log.info("✅ 成功为用户 {} 关联SUPER_ADMIN角色 (userId={}, roleId={})", user.getUsername(), user.getId(), roleId);
+            } else {
+                log.info("用户 {} 已有关联SUPER_ADMIN角色或插入被忽略（影响行数=0）", user.getUsername());
+            }
+        });
     }
 
     private boolean isBootstrapSuperAdmin(String username) {

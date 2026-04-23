@@ -48,14 +48,17 @@ public class DataInitializer implements ApplicationRunner {
         }
 
         int roleCount = user.getRoles() != null ? user.getRoles().size() : 0;
-        log.info("用户 {} (userId={}) 当前角色数量: {}", user.getUsername(), user.getId(), roleCount);
+        boolean hasSuperAdminRole = user.getRoles() != null
+                && user.getRoles().stream().anyMatch(role -> "SUPER_ADMIN".equals(role.getRoleCode()));
+        log.info("用户 {} (userId={}) 当前角色数量: {}, hasSuperAdminRole={}",
+                user.getUsername(), user.getId(), roleCount, hasSuperAdminRole);
 
-        if (roleCount > 0) {
-            log.info("引导超级管理员用户 {} 已有{}个角色关联，无需修复", user.getUsername(), roleCount);
+        if (hasSuperAdminRole) {
+            log.info("引导超级管理员用户 {} 已有关联 SUPER_ADMIN，无需修复", user.getUsername());
             return;
         }
 
-        log.warn("引导超级管理员用户 {} 没有关联任何角色，开始自动修复...", user.getUsername());
+        log.warn("引导超级管理员用户 {} 缺少 SUPER_ADMIN 角色关联，开始自动修复...", user.getUsername());
         log.warn("用户ID: {}, 邮箱: {}", user.getId(), user.getEmail());
 
         transactionTemplate.execute(status -> {

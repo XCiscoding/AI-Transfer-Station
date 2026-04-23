@@ -194,17 +194,17 @@ public class ProjectService {
         }
         List<Long> ownedTeamIds = getOwnedTeamIds(currentUser);
         if (project.getTeam() == null || !ownedTeamIds.contains(project.getTeam().getId())) {
-            throw new BusinessException("仅团队管理员可操作本团队项目");
+            throw new BusinessException(403, "仅团队管理员可操作本团队项目");
         }
     }
 
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !StringUtils.hasText(authentication.getName())) {
-            throw new BusinessException("未获取到当前登录用户");
+            throw new BusinessException(401, "未获取到当前登录用户");
         }
         return userRepository.findWithRolesByUsername(authentication.getName())
-                .orElseThrow(() -> new BusinessException("当前登录用户不存在"));
+                .orElseThrow(() -> new BusinessException(401, "当前登录用户不存在"));
     }
 
     private boolean isSuperAdmin(User user) {

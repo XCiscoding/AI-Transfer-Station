@@ -59,11 +59,11 @@ public class TeamMemberService {
         Team team = getManageableTeam(teamId);
         Long userId = request.getUserId();
         if (teamMemberRepository.existsByTeamIdAndUserId(team.getId(), userId)) {
-            throw new BusinessException("该用户已在团队中");
+            throw new BusinessException(400, "该用户已在团队中");
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException("用户不存在"));
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
 
         TeamMember member = TeamMember.builder()
                 .team(team)
@@ -79,11 +79,11 @@ public class TeamMemberService {
     public List<TeamMemberVO> removeMember(Long teamId, Long userId) {
         Team team = getManageableTeam(teamId);
         if (team.getOwner() != null && team.getOwner().getId().equals(userId)) {
-            throw new BusinessException("当前团队管理员不能直接移除，请先转交团队管理员");
+            throw new BusinessException(400, "当前团队管理员不能直接移除，请先转交团队管理员");
         }
 
         TeamMember member = teamMemberRepository.findByTeamIdAndUserId(team.getId(), userId)
-                .orElseThrow(() -> new BusinessException("团队成员不存在"));
+                .orElseThrow(() -> new BusinessException(404, "团队成员不存在"));
         teamMemberRepository.delete(member);
         syncMemberCount(team);
         return listMembers(team.getId());
@@ -92,9 +92,9 @@ public class TeamMemberService {
     public List<TeamMemberVO> transferOwner(Long teamId, TeamOwnerTransferRequest request) {
         Team team = getManageableTeam(teamId);
         User newOwner = userRepository.findById(request.getNewOwnerId())
-                .orElseThrow(() -> new BusinessException("用户不存在"));
+                .orElseThrow(() -> new BusinessException(404, "用户不存在"));
         if (team.getOwner() != null && team.getOwner().getId().equals(newOwner.getId())) {
-            throw new BusinessException("该用户已经是当前团队管理员");
+            throw new BusinessException(400, "该用户已经是当前团队管理员");
         }
 
         TeamMember newOwnerMember = teamMemberRepository.findByTeamIdAndUserId(team.getId(), newOwner.getId())
@@ -137,13 +137,13 @@ public class TeamMemberService {
 
     private Team getManageableTeam(Long teamId) {
         Team team = teamRepository.findByIdAndDeleted(teamId, 0)
-                .orElseThrow(() -> new BusinessException("团队不存在"));
+                .orElseThrow(() -> new BusinessException(404, "团队不存在"));
         User currentUser = getCurrentUser();
         if (isSuperAdmin(currentUser)) {
             return team;
         }
         if (team.getOwner() == null || !team.getOwner().getId().equals(currentUser.getId())) {
-            throw new BusinessException("仅团队管理员可操作该团队");
+            throw new BusinessException(403, "仅团队管理员可操作该团队");
         }
         return team;
     }
@@ -151,10 +151,10 @@ public class TeamMemberService {
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !StringUtils.hasText(authentication.getName())) {
-            throw new BusinessException("未获取到当前登录用户");
+            throw new BusinessException(401, "未获取到当前登录用户");
         }
         return userRepository.findByUsername(authentication.getName())
-                .orElseThrow(() -> new BusinessException("当前登录用户不存在"));
+                .orElseThrow(() -> new BusinessException(401, "当前登录用户不存在"));
     }
 
     private boolean isSuperAdmin(User user) {

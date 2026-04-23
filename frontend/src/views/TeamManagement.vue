@@ -367,6 +367,75 @@
     </el-dialog>
 
     <el-dialog
+      v-model="memberWorkspaceVisible"
+      :title="selectedTeam ? `成员管理：${selectedTeam.teamName}` : '成员管理'"
+      width="920px"
+      :close-on-click-modal="false"
+      class="team-dialog member-workspace-dialog"
+      destroy-on-close
+    >
+      <div v-if="selectedTeam" class="member-workspace">
+        <div class="workspace-header">
+          <div>
+            <div class="workspace-title">{{ selectedTeam.teamName }}</div>
+            <div class="workspace-subtitle">{{ selectedTeam.teamCode }} · {{ selectedTeam.ownerName }}</div>
+          </div>
+          <div class="workspace-actions">
+            <el-button type="primary" @click="openAddMemberDialog">添加成员</el-button>
+            <el-button @click="fetchTeamMembers(selectedTeam.id)">刷新</el-button>
+          </div>
+        </div>
+
+        <el-table :data="memberList" v-loading="memberLoading" class="member-table" empty-text="暂无成员">
+          <el-table-column prop="username" label="用户名" min-width="120" />
+          <el-table-column prop="realName" label="姓名" min-width="100">
+            <template #default="{ row }">{{ row.realName || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="role" label="角色" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.owner ? 'warning' : 'info'" size="small">
+                {{ row.owner ? '管理员' : '成员' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="joinedAt" label="加入时间" width="160" align="center">
+            <template #default="{ row }">{{ formatTime(row.joinedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="180" align="center">
+            <template #default="{ row }">
+              <div class="action-buttons">
+                <el-button
+                  v-if="canManageRow(selectedTeam) && !row.owner"
+                  type="primary"
+                  link
+                  size="small"
+                  @click="handleTransferOwner(row)"
+                >
+                  转交管理员
+                </el-button>
+                <el-button
+                  v-if="canManageRow(selectedTeam)"
+                  type="danger"
+                  link
+                  size="small"
+                  :disabled="row.owner"
+                  @click="handleRemoveMember(row)"
+                >
+                  移除
+                </el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="memberWorkspaceVisible = false">关闭</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="memberDialogVisible"
       title="添加团队成员"
       width="480px"
@@ -442,6 +511,7 @@ const readonlyAllowedGroups = ref([])
 const selectedTeam = ref(null)
 const memberList = ref([])
 const memberLoading = ref(false)
+const memberWorkspaceVisible = ref(false)
 const memberDialogVisible = ref(false)
 const memberCandidates = ref([])
 const candidateLoading = ref(false)
@@ -689,8 +759,11 @@ async function fetchTeamMembers(teamId) {
   try {
     const res = await getTeamMembers(teamId)
     memberList.value = res.code === 200 && Array.isArray(res.data) ? res.data : []
+    return true
   } catch (error) {
+    console.error('获取团队成员失败:', error?.response?.data || error)
     memberList.value = []
+    return false
   } finally {
     memberLoading.value = false
   }
@@ -703,7 +776,10 @@ async function openMemberWorkspace(row) {
   }
   selectedTeam.value = row
   readonlyAllowedGroups.value = row.allowedGroups || []
-  await fetchTeamMembers(row.id)
+  const ok = await fetchTeamMembers(row.id)
+  if (ok && isSuperAdmin.value) {
+    memberWorkspaceVisible.value = true
+  }
 }
 
 async function fetchMemberCandidates() {

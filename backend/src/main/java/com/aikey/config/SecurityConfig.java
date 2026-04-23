@@ -89,6 +89,7 @@ public class SecurityConfig {
 
                 // 放行Actuator健康检查端点
                 .requestMatchers("/actuator/**").permitAll()
+                .requestMatchers("/api/health").permitAll()
 
                 // 其他所有请求都需要认证
                 .anyRequest().authenticated()

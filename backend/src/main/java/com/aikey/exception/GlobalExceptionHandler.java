@@ -4,6 +4,7 @@ import com.aikey.dto.common.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -36,7 +37,9 @@ public class GlobalExceptionHandler {
         log.warn("业务异常: [{}] {}", e.getCode(), e.getMessage());
         // 根据业务错误码返回对应的HTTP状态码
         HttpStatus status = HttpStatus.OK;
-        if (e.getCode() == 401) {
+        if (e.getCode() == 400) {
+            status = HttpStatus.BAD_REQUEST;
+        } else if (e.getCode() == 401) {
             status = HttpStatus.UNAUTHORIZED;
         } else if (e.getCode() == 403) {
             status = HttpStatus.FORBIDDEN;
@@ -44,6 +47,18 @@ public class GlobalExceptionHandler {
             status = HttpStatus.NOT_FOUND;
         }
         return new ResponseEntity<>(Result.error(e.getCode(), e.getMessage()), status);
+    }
+
+    /**
+     * 处理方法级权限异常，避免 @PreAuthorize 拒绝被兜底包装成 500。
+     *
+     * @param e 权限拒绝异常
+     * @return 403错误结果
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Result<Void>> handleAccessDeniedException(AccessDeniedException e) {
+        log.warn("权限不足: {}", e.getMessage());
+        return new ResponseEntity<>(Result.error(403, "权限不足"), HttpStatus.FORBIDDEN);
     }
 
     /**

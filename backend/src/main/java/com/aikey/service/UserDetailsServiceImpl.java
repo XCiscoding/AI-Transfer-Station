@@ -11,7 +11,6 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -41,14 +40,15 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         log.debug("正在加载用户信息: {}", username);
 
-        // 1. 调用userRepository查询用户
-        User user = userRepository.findByUsername(username)
+        // 1. 显式加载角色，避免 @PreAuthorize 使用的 SecurityContext 丢失 ROLE_*。
+        User user = userRepository.findWithRolesByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
 
         // 2. 获取用户权限列表
+        Set<Role> roles = user.getRoles();
         List<SimpleGrantedAuthority> authorities;
-        if (user.getRoles() != null && !user.getRoles().isEmpty()) {
-            authorities = getAuthorities(user.getRoles());
+        if (roles != null && !roles.isEmpty()) {
+            authorities = getAuthorities(roles);
         } else {
             // 如果用户没有关联角色，提供默认角色以避免认证失败
             // 这通常意味着数据初始化有问题（data.sql未正确执行）
@@ -58,7 +58,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
         log.info("用户 {} 加载成功, 角色数量: {}, 权限数量: {}",
                 username,
-                user.getRoles() != null ? user.getRoles().size() : 0,
+                roles != null ? roles.size() : 0,
                 authorities.size());
 
         // 3. 返回Spring Security的User对象
